@@ -5,11 +5,14 @@ A comprehensive WordPress plugin that provides Gutenberg blocks for integrating 
 ## Features
 
 - **Todo List Block**: Display tasks from specific Todoist projects
-- **Todo Form Block**: Add new tasks to Todoist projects directly from your site
 - **Todo Stats Block**: Show task statistics and progress
 - **Secure API Integration**: Uses Todoist Personal Access Token for secure authentication
 - **Responsive Design**: Mobile-friendly blocks that work on all devices
 - **Real-time Updates**: Interactive features for task management
+
+## Future Features
+- **Site Admin Completion**: A site admin can check off the boxes in the list display to complete tasks in the Todoist app.
+- **Monthly Productivity Report**: Downloads stats for a given month/year and freezes them in-place so that they're not dependent on the API.
 
 ## Installation
 
