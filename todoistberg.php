@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name: Todoistberg - Todoist Gutenberg Blocks
- * Plugin URI: https://github.com/your-username/todoistberg
+ * Plugin URI: https://github.com/dan-bailey/todoistberg
  * Description: A collection of Gutenberg blocks for integrating Todoist functionality into WordPress.
  * Version: 1.0.0
- * Author: Your Name
+ * Author: Dan Bailey
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: todoistberg
@@ -582,9 +582,14 @@ class Todoistberg_Plugin {
                 <ul class="todoistberg-tasks">
                     <?php foreach ($tasks as $task): ?>
                         <li class="todoistberg-task <?php echo $task['completed'] ? 'completed' : ''; ?>" data-task-id="<?php echo esc_attr($task['id']); ?>">
+                            <?php if ($task['completed']): ?>
+                                <span class="todoistberg-task-checkmark">✅</span>
+                            <?php else: ?>
+                                <span class="todoistberg-task-checkmark">⬜️</span>
+                            <?php endif; ?>
                             <span class="todoistberg-task-content"><?php echo esc_html($task['content']); ?></span>
-                            <?php if ($task['due']): ?>
-                                <span class="todoistberg-task-due"><?php echo esc_html($task['due']['date']); ?></span>
+                            <?php if (!$task['completed'] && !empty($task['project_name'])): ?>
+                                <span class="todoistberg-task-project"><?php echo esc_html($task['project_name']); ?></span>
                             <?php endif; ?>
                         </li>
                     <?php endforeach; ?>
@@ -687,6 +692,12 @@ class Todoistberg_Plugin {
         $today = new DateTime('today', new DateTimeZone($user_timezone));
         $today_string = $today->format('Y-m-d');
         
+        // If we need completed tasks, get today's completed tasks from activity log
+        $completed_tasks_today = array();
+        if ($show_completed) {
+            $completed_tasks_today = $this->get_completed_tasks_today($project_id);
+        }
+        
         $response = wp_remote_post('https://api.todoist.com/sync/v9/sync', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $token,
@@ -694,7 +705,7 @@ class Todoistberg_Plugin {
             ),
             'body' => array(
                 'sync_token' => '*',
-                'resource_types' => '["items"]'
+                'resource_types' => '["items", "projects"]'
             )
         ));
         
@@ -704,6 +715,13 @@ class Todoistberg_Plugin {
         
         $data = json_decode(wp_remote_retrieve_body($response), true);
         $all_tasks = isset($data['items']) ? $data['items'] : array();
+        $projects = isset($data['projects']) ? $data['projects'] : array();
+        
+        // Create project lookup array
+        $project_lookup = array();
+        foreach ($projects as $project) {
+            $project_lookup[$project['id']] = $project['name'];
+        }
         
         $tasks = array();
         foreach ($all_tasks as $task) {
@@ -712,12 +730,12 @@ class Todoistberg_Plugin {
                 continue;
             }
             
-            // Filter by completion status
-            if (!$show_completed && $task['checked'] == 1) {
+            // Skip completed tasks - we'll add them from activity log separately
+            if ($task['checked'] == 1) {
                 continue;
             }
             
-            // Filter out past-due tasks
+            // For uncompleted tasks, only show tasks that are due today
             if (isset($task['due']) && $task['due'] && isset($task['due']['date'])) {
                 $due_date = $task['due']['date'];
                 
@@ -726,10 +744,13 @@ class Todoistberg_Plugin {
                     $due_date = substr($due_date, 0, 10);
                 }
                 
-                // Skip tasks that are past due (due date is before today)
-                if ($due_date < $today_string) {
+                // Only show tasks that are due exactly today
+                if ($due_date !== $today_string) {
                     continue;
                 }
+            } else {
+                // Skip uncompleted tasks that don't have a due date
+                continue;
             }
             
             // Process due date to use user's timezone
@@ -757,11 +778,15 @@ class Todoistberg_Plugin {
                 }
             }
             
+            // Get project name
+            $project_name = isset($project_lookup[$task['project_id']]) ? $project_lookup[$task['project_id']] : 'Unknown Project';
+            
             $tasks[] = array(
                 'id' => $task['id'],
                 'content' => $task['content'],
                 'completed' => $task['checked'] == 1,
-                'due' => $due_info
+                'due' => $due_info,
+                'project_name' => $project_name
             );
             
             if (count($tasks) >= $max_items) {
@@ -769,7 +794,83 @@ class Todoistberg_Plugin {
             }
         }
         
+        // Add completed tasks from today if requested
+        if ($show_completed && !empty($completed_tasks_today)) {
+            // Make sure we don't exceed max_items
+            $remaining_slots = $max_items - count($tasks);
+            if ($remaining_slots > 0) {
+                $tasks = array_merge($tasks, array_slice($completed_tasks_today, 0, $remaining_slots));
+            }
+        }
+        
         return $tasks;
+    }
+    
+    /**
+     * Get tasks completed today from Todoist Activity API
+     */
+    public function get_completed_tasks_today($project_id = '') {
+        $token = $this->get_todoist_token();
+        $user_timezone = $this->get_timezone();
+        
+        if (empty($token)) {
+            return array();
+        }
+        
+        // Get today's range in user timezone
+        $today = new DateTime('today', new DateTimeZone($user_timezone));
+        $today_start = $today->format('Y-m-d\T00:00:00');
+        $today_end = $today->format('Y-m-d\T23:59:59');
+        
+        // Convert to UTC for comparison with API data
+        $today_start_utc = new DateTime($today_start, new DateTimeZone($user_timezone));
+        $today_start_utc->setTimezone(new DateTimeZone('UTC'));
+        $today_end_utc = new DateTime($today_end, new DateTimeZone($user_timezone));
+        $today_end_utc->setTimezone(new DateTimeZone('UTC'));
+        
+        $today_start_str = $today_start_utc->format('Y-m-d\TH:i:s\Z');
+        $today_end_str = $today_end_utc->format('Y-m-d\TH:i:s\Z');
+        
+        // Get completed events from activity log
+        $activity_events = $this->get_activity_log(100);
+        
+        // Get projects for lookup
+        $projects = $this->get_projects_list();
+        $project_lookup = array();
+        foreach ($projects as $project) {
+            $project_lookup[$project['value']] = $project['label'];
+        }
+        
+        $completed_tasks = array();
+        
+        foreach ($activity_events as $event) {
+            if ($event['event_type'] === 'completed' && 
+                isset($event['event_date']) && 
+                $event['event_date'] >= $today_start_str && 
+                $event['event_date'] <= $today_end_str) {
+                
+                // Filter by project if specified
+                if (!empty($project_id) && $project_id !== 'all' && 
+                    isset($event['extra_data']['project_id']) && 
+                    $event['extra_data']['project_id'] != $project_id) {
+                    continue;
+                }
+                
+                // Get project name
+                $task_project_id = isset($event['extra_data']['project_id']) ? $event['extra_data']['project_id'] : '';
+                $project_name = isset($project_lookup[$task_project_id]) ? $project_lookup[$task_project_id] : 'Unknown Project';
+                
+                $completed_tasks[] = array(
+                    'id' => isset($event['extra_data']['item_id']) ? $event['extra_data']['item_id'] : $event['id'],
+                    'content' => isset($event['extra_data']['content']) ? $event['extra_data']['content'] : 'Completed task',
+                    'completed' => true,
+                    'due' => null, // Completed tasks don't need due info
+                    'project_name' => $project_name
+                );
+            }
+        }
+        
+        return $completed_tasks;
     }
     
     /**

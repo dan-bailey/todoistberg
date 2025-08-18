@@ -97,12 +97,17 @@ $todoistberg-warning: #ffc107;
             }
 
             &.completed {
-                opacity: 0.6;
+                opacity: 0.8;
 
                 .todoistberg-task-content {
-                    text-decoration: line-through;
                     color: #666;
                 }
+            }
+
+            .todoistberg-task-checkmark {
+                margin-right: 8px;
+                font-size: 16px;
+                line-height: 1;
             }
 
             .todoistberg-task-content {
@@ -114,6 +119,16 @@ $todoistberg-warning: #ffc107;
 
             .todoistberg-task-due {
                 font-size: 12px;
+                color: #666;
+                background: #f0f0f0;
+                padding: 4px 8px;
+                border-radius: 12px;
+                white-space: nowrap;
+                margin-left: 10px;
+            }
+
+            .todoistberg-task-project {
+                font-size: 14px; // Same as task content
                 color: #666;
                 background: #f0f0f0;
                 padding: 4px 8px;
@@ -263,7 +278,8 @@ $todoistberg-warning: #ffc107;
             align-items: flex-start;
             gap: 8px;
 
-            .todoistberg-task-due {
+            .todoistberg-task-due,
+            .todoistberg-task-project {
                 margin-left: 0;
             }
         }
