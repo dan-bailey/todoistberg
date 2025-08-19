@@ -3,7 +3,7 @@
  * Plugin Name: Todoistberg - Todoist Gutenberg Blocks
  * Plugin URI: https://github.com/dan-bailey/todoistberg
  * Description: A collection of Gutenberg blocks for integrating Todoist functionality into WordPress.
- * Version: 1.0.0
+ * Version: 1.0.3
  * Author: Dan Bailey
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TODOISTBERG_VERSION', '1.0.1');
+define('TODOISTBERG_VERSION', '1.0.3');
 define('TODOISTBERG_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TODOISTBERG_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('TODOISTBERG_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -118,6 +118,34 @@ class Todoistberg_Plugin {
                 'title' => array(
                     'type' => 'string',
                     'default' => ''
+                ),
+                'borderWidth' => array(
+                    'type' => 'number',
+                    'default' => 0
+                ),
+                'borderColor' => array(
+                    'type' => 'string',
+                    'default' => '#ddd'
+                ),
+                'borderRadius' => array(
+                    'type' => 'number',
+                    'default' => 0
+                ),
+                'backgroundColor' => array(
+                    'type' => 'string',
+                    'default' => '#fff'
+                ),
+                'margin' => array(
+                    'type' => 'number',
+                    'default' => 20
+                ),
+                'padding' => array(
+                    'type' => 'number',
+                    'default' => 20
+                ),
+                'headlineAlignment' => array(
+                    'type' => 'string',
+                    'default' => 'left'
                 )
             )
         ));
@@ -168,6 +196,38 @@ class Todoistberg_Plugin {
                 'numberColor' => array(
                     'type' => 'string',
                     'default' => '#007cba'
+                ),
+                'title' => array(
+                    'type' => 'string',
+                    'default' => 'Todoist Completion Statistics'
+                ),
+                'borderWidth' => array(
+                    'type' => 'number',
+                    'default' => 0
+                ),
+                'borderColor' => array(
+                    'type' => 'string',
+                    'default' => '#ddd'
+                ),
+                'borderRadius' => array(
+                    'type' => 'number',
+                    'default' => 0
+                ),
+                'backgroundColor' => array(
+                    'type' => 'string',
+                    'default' => '#fff'
+                ),
+                'margin' => array(
+                    'type' => 'number',
+                    'default' => 20
+                ),
+                'padding' => array(
+                    'type' => 'number',
+                    'default' => 20
+                ),
+                'headlineAlignment' => array(
+                    'type' => 'string',
+                    'default' => 'center'
                 )
             )
         ));
@@ -566,14 +626,27 @@ class Todoistberg_Plugin {
         $max_items = $attributes['maxItems'] ?? 10;
         $show_completed = $attributes['showCompleted'] ?? false;
         $title = $attributes['title'] ?? '';
+        $border_width = $attributes['borderWidth'] ?? 0;
+        $border_color = $attributes['borderColor'] ?? '#ddd';
+        $border_radius = $attributes['borderRadius'] ?? 0;
+        $background_color = $attributes['backgroundColor'] ?? '#fff';
+        $margin = $attributes['margin'] ?? 20;
+        $padding = $attributes['padding'] ?? 20;
+        $headline_alignment = $attributes['headlineAlignment'] ?? 'left';
         
         $tasks = $this->get_tasks($project_id, $max_items, $show_completed);
         
         ob_start();
         ?>
-        <div class="todoistberg-todo-list" data-project-id="<?php echo esc_attr($project_id); ?>">
+        <div class="todoistberg-todo-list" data-project-id="<?php echo esc_attr($project_id); ?>" style="<?php 
+            echo $border_width ? 'border: ' . esc_attr($border_width) . 'px solid ' . esc_attr($border_color) . ';' : 'border: none;';
+            echo 'border-radius: ' . esc_attr($border_radius) . 'px;';
+            echo 'background-color: ' . esc_attr($background_color) . ';';
+            echo 'margin-bottom: ' . esc_attr($margin) . 'px;';
+            echo 'padding: ' . esc_attr($padding) . 'px;';
+        ?>">
             <?php if (!empty($title)): ?>
-                <h3 class="todoistberg-title"><?php echo esc_html($title); ?></h3>
+                <h3 class="todoistberg-title" style="text-align: <?php echo esc_attr($headline_alignment); ?>"><?php echo esc_html($title); ?></h3>
             <?php endif; ?>
             
             <?php if (empty($tasks)): ?>
@@ -635,13 +708,29 @@ class Todoistberg_Plugin {
         $show_month = $attributes['showMonth'] ?? true;
         $show_past_due = $attributes['showPastDue'] ?? false;
         $number_color = $attributes['numberColor'] ?? '#007cba';
+        $title = $attributes['title'] ?? 'Todoist Completion Statistics';
+        $border_width = $attributes['borderWidth'] ?? 0;
+        $border_color = $attributes['borderColor'] ?? '#ddd';
+        $border_radius = $attributes['borderRadius'] ?? 0;
+        $background_color = $attributes['backgroundColor'] ?? '#fff';
+        $margin = $attributes['margin'] ?? 20;
+        $padding = $attributes['padding'] ?? 20;
+        $headline_alignment = $attributes['headlineAlignment'] ?? 'center';
         
         $stats = $this->get_stats($show_today, $show_week, $show_month, $show_past_due);
         
         ob_start();
         ?>
-        <div class="todoistberg-todo-stats">
-            <h3 class="todoistberg-stats-title"><?php _e('Todoist Completion Statistics', 'todoistberg'); ?></h3>
+        <div class="todoistberg-todo-stats" style="<?php 
+            echo $border_width ? 'border: ' . esc_attr($border_width) . 'px solid ' . esc_attr($border_color) . ';' : 'border: none;';
+            echo 'border-radius: ' . esc_attr($border_radius) . 'px;';
+            echo 'background-color: ' . esc_attr($background_color) . ';';
+            echo 'margin-bottom: ' . esc_attr($margin) . 'px;';
+            echo 'padding: ' . esc_attr($padding) . 'px;';
+        ?>">
+            <?php if (!empty($title)): ?>
+                <h3 class="todoistberg-stats-title" style="text-align: <?php echo esc_attr($headline_alignment); ?>"><?php echo esc_html($title); ?></h3>
+            <?php endif; ?>
             <div class="todoistberg-stats-grid">
                 <?php if ($show_today && isset($stats['today'])): ?>
                     <div class="todoistberg-stat-item">
@@ -686,6 +775,14 @@ class Todoistberg_Plugin {
             return array();
         }
         
+        // Check cache first to reduce API calls
+        $cache_key = 'todoistberg_tasks_' . md5($project_id . '_' . $max_items . '_' . ($show_completed ? '1' : '0'));
+        $cached_tasks = get_transient($cache_key);
+        
+        if ($cached_tasks !== false) {
+            return $cached_tasks;
+        }
+        
         $user_timezone = $this->get_timezone();
         
         // Get current date in user's timezone for filtering past-due tasks
@@ -709,7 +806,16 @@ class Todoistberg_Plugin {
             )
         ));
         
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        $response_code = wp_remote_retrieve_response_code($response);
+        if (is_wp_error($response) || $response_code !== 200) {
+            $error_msg = is_wp_error($response) ? $response->get_error_message() : 'HTTP ' . $response_code;
+            error_log('Todoistberg Debug: API call failed - ' . $error_msg);
+            
+            // If rate limited (429), show a helpful message instead of empty list
+            if ($response_code === 429) {
+                error_log('Todoistberg Debug: Rate limited by Todoist API');
+            }
+            
             return array();
         }
         
@@ -724,6 +830,7 @@ class Todoistberg_Plugin {
         }
         
         $tasks = array();
+        
         foreach ($all_tasks as $task) {
             // Filter by project if specified (skip filtering if project_id is empty or 'all')
             if (!empty($project_id) && $project_id !== 'all' && $task['project_id'] != $project_id) {
@@ -802,6 +909,9 @@ class Todoistberg_Plugin {
                 $tasks = array_merge($tasks, array_slice($completed_tasks_today, 0, $remaining_slots));
             }
         }
+        
+        // Cache the results for 5 minutes to reduce API calls
+        set_transient($cache_key, $tasks, 5 * MINUTE_IN_SECONDS);
         
         return $tasks;
     }

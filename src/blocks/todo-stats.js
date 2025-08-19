@@ -4,7 +4,8 @@
 import { __ } from '@wordpress/i18n';
 import { 
     useBlockProps, 
-    InspectorControls
+    InspectorControls,
+    RichText
 } from '@wordpress/block-editor';
 import { 
     Placeholder, 
@@ -15,7 +16,9 @@ import {
     Spinner,
     PanelBody,
     ToggleControl,
-    ColorPicker
+    ColorPicker,
+    RangeControl,
+    SelectControl
 } from '@wordpress/components';
 import { useState, useEffect } from '@wordpress/element';
 
@@ -24,13 +27,20 @@ import { useState, useEffect } from '@wordpress/element';
  */
 export default function TodoStatsBlock({ attributes, setAttributes }) {
     console.log('🔍 TodoStatsBlock attributes:', attributes);
-    const { showToday, showWeek, showMonth, showPastDue, numberColor } = attributes;
+    const { showToday, showWeek, showMonth, showPastDue, numberColor, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment, title } = attributes;
     const [stats, setStats] = useState({});
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     
     const blockProps = useBlockProps({
-        className: 'todoistberg-todo-stats'
+        className: 'todoistberg-todo-stats',
+        style: {
+            border: borderWidth ? `${borderWidth}px solid ${borderColor}` : 'none',
+            borderRadius: `${borderRadius}px`,
+            backgroundColor,
+            marginBottom: `${margin}px`,
+            padding: `${padding}px`
+        }
     });
 
     // Fetch stats when attributes change
@@ -202,12 +212,86 @@ export default function TodoStatsBlock({ attributes, setAttributes }) {
                         />
                     </div>
                 </PanelBody>
+                
+                <PanelBody title={__('Block Styling', 'todoistberg')} initialOpen={false}>
+                    <RangeControl
+                        label={__('Border Width', 'todoistberg')}
+                        value={borderWidth}
+                        onChange={(value) => setAttributes({ borderWidth: value })}
+                        min={0}
+                        max={10}
+                    />
+                    
+                    <div style={{ marginTop: '16px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '11px', fontWeight: '500', textTransform: 'uppercase' }}>
+                            {__('Border Color', 'todoistberg')}
+                        </label>
+                        <ColorPicker
+                            color={borderColor}
+                            onChange={(value) => setAttributes({ borderColor: value })}
+                            enableAlpha
+                        />
+                    </div>
+                    
+                    <RangeControl
+                        label={__('Corner Radius', 'todoistberg')}
+                        value={borderRadius}
+                        onChange={(value) => setAttributes({ borderRadius: value })}
+                        min={0}
+                        max={50}
+                    />
+                    
+                    <div style={{ marginTop: '16px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '11px', fontWeight: '500', textTransform: 'uppercase' }}>
+                            {__('Background Color', 'todoistberg')}
+                        </label>
+                        <ColorPicker
+                            color={backgroundColor}
+                            onChange={(value) => setAttributes({ backgroundColor: value })}
+                            enableAlpha
+                        />
+                    </div>
+                    
+                    <RangeControl
+                        label={__('Margin (px)', 'todoistberg')}
+                        value={margin}
+                        onChange={(value) => setAttributes({ margin: value })}
+                        min={0}
+                        max={100}
+                    />
+                    
+                    <RangeControl
+                        label={__('Padding (px)', 'todoistberg')}
+                        value={padding}
+                        onChange={(value) => setAttributes({ padding: value })}
+                        min={0}
+                        max={100}
+                    />
+                </PanelBody>
+                
+                <PanelBody title={__('Headline Settings', 'todoistberg')} initialOpen={false}>
+                    <SelectControl
+                        label={__('Headline Alignment', 'todoistberg')}
+                        value={headlineAlignment}
+                        options={[
+                            { label: __('Left', 'todoistberg'), value: 'left' },
+                            { label: __('Center', 'todoistberg'), value: 'center' },
+                            { label: __('Right', 'todoistberg'), value: 'right' }
+                        ]}
+                        onChange={(value) => setAttributes({ headlineAlignment: value })}
+                    />
+                </PanelBody>
             </InspectorControls>
 
             <div {...blockProps}>
-                <h3 className="todoistberg-stats-title">
-                    {__('Todoist Completion Statistics', 'todoistberg')}
-                </h3>
+                <RichText
+                    tagName="h3"
+                    className="todoistberg-stats-title"
+                    style={{ textAlign: headlineAlignment }}
+                    value={title}
+                    onChange={(value) => setAttributes({ title: value })}
+                    placeholder={__('Enter title...', 'todoistberg')}
+                />
                 
                 {!window.todoistbergData?.hasToken ? (
                     <Notice status="warning" isDismissible={false}>

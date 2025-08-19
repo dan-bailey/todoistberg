@@ -45,6 +45,34 @@ registerBlockType('todoistberg/todo-list', {
         title: {
             type: 'string',
             default: ''
+        },
+        borderWidth: {
+            type: 'number',
+            default: 0
+        },
+        borderColor: {
+            type: 'string',
+            default: '#ddd'
+        },
+        borderRadius: {
+            type: 'number',
+            default: 0
+        },
+        backgroundColor: {
+            type: 'string',
+            default: '#fff'
+        },
+        margin: {
+            type: 'number',
+            default: 20
+        },
+        padding: {
+            type: 'number',
+            default: 20
+        },
+        headlineAlignment: {
+            type: 'string',
+            default: 'left'
         }
     },
     edit: TodoListBlock,
@@ -87,6 +115,38 @@ registerBlockType('todoistberg/todo-stats', {
         numberColor: {
             type: 'string',
             default: '#007cba'
+        },
+        title: {
+            type: 'string',
+            default: 'Todoist Completion Statistics'
+        },
+        borderWidth: {
+            type: 'number',
+            default: 0
+        },
+        borderColor: {
+            type: 'string',
+            default: '#ddd'
+        },
+        borderRadius: {
+            type: 'number',
+            default: 0
+        },
+        backgroundColor: {
+            type: 'string',
+            default: '#fff'
+        },
+        margin: {
+            type: 'number',
+            default: 20
+        },
+        padding: {
+            type: 'number',
+            default: 20
+        },
+        headlineAlignment: {
+            type: 'string',
+            default: 'center'
         }
     },
     edit: TodoStatsBlock,
