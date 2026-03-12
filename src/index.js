@@ -42,6 +42,10 @@ registerBlockType('todoistberg/todo-list', {
             type: 'boolean',
             default: false
         },
+        showProjectPill: {
+            type: 'boolean',
+            default: false
+        },
         title: {
             type: 'string',
             default: ''
