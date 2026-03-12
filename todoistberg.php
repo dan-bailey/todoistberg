@@ -115,6 +115,10 @@ class Todoistberg_Plugin {
                     'type' => 'boolean',
                     'default' => false
                 ),
+                'showProjectPill' => array(
+                    'type' => 'boolean',
+                    'default' => false
+                ),
                 'title' => array(
                     'type' => 'string',
                     'default' => ''
@@ -581,6 +585,7 @@ class Todoistberg_Plugin {
         $token = $this->get_todoist_token();
 
         if (empty($token)) {
+            error_log('Todoistberg Debug: No token in get_projects_list');
             return array();
         }
 
@@ -591,19 +596,43 @@ class Todoistberg_Plugin {
         ));
 
         if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            error_log('Todoistberg Debug: Projects API call failed: ' . (is_wp_error($response) ? $response->get_error_message() : wp_remote_retrieve_response_code($response)));
             return array();
         }
 
-        $projects = json_decode(wp_remote_retrieve_body($response), true);
+        $response_data = json_decode(wp_remote_retrieve_body($response), true);
+
+        error_log('Todoistberg Debug: Projects raw response keys: ' . (is_array($response_data) ? implode(', ', array_keys($response_data)) : 'not an array'));
+        error_log('Todoistberg Debug: Projects response type: ' . gettype($response_data));
+
+        // API v1 projects endpoint might return results in a 'results' key like other endpoints
+        $projects = $response_data['results'] ?? $response_data;
+
+        error_log('Todoistberg Debug: After extracting, projects count: ' . (is_array($projects) ? count($projects) : 'N/A'));
+        if (is_array($projects) && count($projects) > 0) {
+            error_log('Todoistberg Debug: First project: ' . json_encode(reset($projects)));
+        }
+
+        // Ensure we have a valid array
+        if (!is_array($projects)) {
+            return array();
+        }
 
         $projects_list = array();
         foreach ($projects as $project) {
+            // Skip invalid project entries
+            if (!is_array($project) || !isset($project['id']) || !isset($project['name'])) {
+                error_log('Todoistberg Debug: Skipping invalid project: ' . json_encode($project));
+                continue;
+            }
+
             $projects_list[] = array(
                 'value' => $project['id'],
                 'label' => $project['name']
             );
         }
 
+        error_log('Todoistberg Debug: Returning ' . count($projects_list) . ' projects');
         return $projects_list;
     }
     
@@ -614,7 +643,12 @@ class Todoistberg_Plugin {
         $project_id = $attributes['projectId'] ?? '';
         $max_items = $attributes['maxItems'] ?? 10;
         $show_completed = $attributes['showCompleted'] ?? false;
+        $show_project_pill = $attributes['showProjectPill'] ?? false;
         $title = $attributes['title'] ?? '';
+
+        error_log('Todoistberg Debug: All attributes = ' . json_encode($attributes));
+        error_log('Todoistberg Debug: showProjectPill attribute value = ' . var_export($attributes['showProjectPill'] ?? 'NOT SET', true));
+        error_log('Todoistberg Debug: showProjectPill final value = ' . var_export($show_project_pill, true));
         $border_width = $attributes['borderWidth'] ?? 0;
         $border_color = $attributes['borderColor'] ?? '#ddd';
         $border_radius = $attributes['borderRadius'] ?? 0;
@@ -650,7 +684,7 @@ class Todoistberg_Plugin {
                                 <span class="todoistberg-task-checkmark">⬜️</span>
                             <?php endif; ?>
                             <span class="todoistberg-task-content"><?php echo esc_html($task['content']); ?></span>
-                            <?php if (!$task['completed'] && !empty($task['project_name'])): ?>
+                            <?php if ($show_project_pill && !empty($task['project_name'])): ?>
                                 <span class="todoistberg-task-project"><?php echo esc_html($task['project_name']); ?></span>
                             <?php endif; ?>
                         </li>
@@ -784,8 +818,19 @@ class Todoistberg_Plugin {
             $completed_tasks_today = $this->get_completed_tasks_today($project_id);
         }
         
-        // Get active tasks using REST API v2
-        $response = wp_remote_get('https://api.todoist.com/rest/v2/tasks', array(
+        // Get active tasks due today using filter endpoint
+        $url = 'https://api.todoist.com/api/v1/tasks/filter';
+        $params = array(
+            'query' => 'today'
+        );
+
+        if (!empty($project_id) && $project_id !== 'all') {
+            $params['query'] = 'today & #' . $project_id;
+        }
+
+        $url_with_params = add_query_arg($params, $url);
+
+        $response = wp_remote_get($url_with_params, array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $token
             )
@@ -804,7 +849,10 @@ class Todoistberg_Plugin {
             return array();
         }
 
-        $all_tasks = json_decode(wp_remote_retrieve_body($response), true);
+        $response_data = json_decode(wp_remote_retrieve_body($response), true);
+
+        // Filter endpoint returns data in a 'results' key
+        $all_tasks = $response_data['results'] ?? $response_data;
 
         // Get projects separately
         $projects = $this->get_projects_list();
@@ -814,37 +862,22 @@ class Todoistberg_Plugin {
         foreach ($projects as $project) {
             $project_lookup[$project['value']] = $project['label'];
         }
-        
+
+        error_log('Todoistberg Debug: Project lookup has ' . count($project_lookup) . ' projects');
+        if (count($project_lookup) > 0) {
+            error_log('Todoistberg Debug: First few project IDs: ' . implode(', ', array_slice(array_keys($project_lookup), 0, 3)));
+        }
+
         $tasks = array();
-        
+
         foreach ($all_tasks as $task) {
-            // Filter by project if specified (skip filtering if project_id is empty or 'all')
-            if (!empty($project_id) && $project_id !== 'all' && $task['project_id'] != $project_id) {
-                continue;
-            }
-            
             // Skip completed tasks - we'll add them from activity log separately
-            if (isset($task['is_completed']) && $task['is_completed']) {
+            // API v1 uses 'checked' field (1 = completed, 0 = not completed)
+            if (isset($task['checked']) && $task['checked'] == 1) {
                 continue;
             }
-            
-            // For uncompleted tasks, only show tasks that are due today
-            if (isset($task['due']) && $task['due'] && isset($task['due']['date'])) {
-                $due_date = $task['due']['date'];
-                
-                // Extract just the date part if it's a full datetime
-                if (strpos($due_date, 'T') !== false) {
-                    $due_date = substr($due_date, 0, 10);
-                }
-                
-                // Only show tasks that are due exactly today
-                if ($due_date !== $today_string) {
-                    continue;
-                }
-            } else {
-                // Skip uncompleted tasks that don't have a due date
-                continue;
-            }
+
+            // No need to filter by date or project - the filter query already did that
             
             // Process due date to use user's timezone
             $due_info = null;
@@ -872,12 +905,14 @@ class Todoistberg_Plugin {
             }
             
             // Get project name
-            $project_name = isset($project_lookup[$task['project_id']]) ? $project_lookup[$task['project_id']] : 'Unknown Project';
+            $task_project_id = $task['project_id'] ?? 'none';
+            error_log('Todoistberg Debug: Task "' . substr($task['content'], 0, 30) . '" has project_id: ' . $task_project_id);
+            $project_name = isset($project_lookup[$task_project_id]) ? $project_lookup[$task_project_id] : 'Unknown Project (' . $task_project_id . ')';
             
             $tasks[] = array(
                 'id' => $task['id'],
                 'content' => $task['content'],
-                'completed' => isset($task['is_completed']) && $task['is_completed'],
+                'completed' => isset($task['checked']) && $task['checked'] == 1,
                 'due' => $due_info,
                 'project_name' => $project_name
             );

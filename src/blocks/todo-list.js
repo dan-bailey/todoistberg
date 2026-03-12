@@ -26,7 +26,7 @@ import { useState, useEffect } from '@wordpress/element';
  * Todo List Block Edit Component
  */
 export default function TodoListBlock({ attributes, setAttributes }) {
-    const { projectId, maxItems, showCompleted, title, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment } = attributes;
+    const { projectId, maxItems, showCompleted, showProjectPill, title, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment } = attributes;
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -155,6 +155,12 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         label={__('Show Completed Tasks', 'todoistberg')}
                         checked={showCompleted}
                         onChange={(value) => setAttributes({ showCompleted: value })}
+                    />
+
+                    <ToggleControl
+                        label={__('Show Project Pill', 'todoistberg')}
+                        checked={showProjectPill}
+                        onChange={(value) => setAttributes({ showProjectPill: value })}
                     />
                 </PanelBody>
                 
