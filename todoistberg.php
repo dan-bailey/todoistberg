@@ -3,7 +3,7 @@
  * Plugin Name: Todoistberg - Todoist Gutenberg Blocks
  * Plugin URI: https://github.com/dan-bailey/todoistberg
  * Description: A collection of Gutenberg blocks for integrating Todoist functionality into WordPress.
- * Version: 1.0.3
+ * Version: 1.1.0
  * Author: Dan Bailey
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TODOISTBERG_VERSION', '1.0.3');
+define('TODOISTBERG_VERSION', '1.1.0');
 define('TODOISTBERG_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TODOISTBERG_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('TODOISTBERG_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -546,32 +546,27 @@ class Todoistberg_Plugin {
     }
     
     /**
-     * Test Todoist connection
+     * Test Todoist connection using API v1
      */
     public function test_connection() {
         $token = $this->get_todoist_token();
-        
+
         if (empty($token)) {
             return array('success' => false, 'message' => 'No token provided');
         }
-        
-        $response = wp_remote_post('https://api.todoist.com/sync/v9/sync', array(
+
+        $response = wp_remote_get('https://api.todoist.com/api/v1/projects', array(
             'headers' => array(
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/x-www-form-urlencoded'
-            ),
-            'body' => array(
-                'sync_token' => '*',
-                'resource_types' => '["projects"]'
+                'Authorization' => 'Bearer ' . $token
             )
         ));
-        
+
         if (is_wp_error($response)) {
             return array('success' => false, 'message' => $response->get_error_message());
         }
-        
+
         $status_code = wp_remote_retrieve_response_code($response);
-        
+
         if ($status_code === 200) {
             return array('success' => true, 'message' => 'Connection successful');
         } else {
@@ -580,33 +575,27 @@ class Todoistberg_Plugin {
     }
     
     /**
-     * Get projects list for block settings
+     * Get projects list for block settings using API v1
      */
     public function get_projects_list() {
         $token = $this->get_todoist_token();
-        
+
         if (empty($token)) {
             return array();
         }
-        
-        $response = wp_remote_post('https://api.todoist.com/sync/v9/sync', array(
+
+        $response = wp_remote_get('https://api.todoist.com/api/v1/projects', array(
             'headers' => array(
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/x-www-form-urlencoded'
-            ),
-            'body' => array(
-                'sync_token' => '*',
-                'resource_types' => '["projects"]'
+                'Authorization' => 'Bearer ' . $token
             )
         ));
-        
+
         if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
             return array();
         }
-        
-        $data = json_decode(wp_remote_retrieve_body($response), true);
-        $projects = isset($data['projects']) ? $data['projects'] : array();
-        
+
+        $projects = json_decode(wp_remote_retrieve_body($response), true);
+
         $projects_list = array();
         foreach ($projects as $project) {
             $projects_list[] = array(
@@ -614,7 +603,7 @@ class Todoistberg_Plugin {
                 'label' => $project['name']
             );
         }
-        
+
         return $projects_list;
     }
     
@@ -795,38 +784,35 @@ class Todoistberg_Plugin {
             $completed_tasks_today = $this->get_completed_tasks_today($project_id);
         }
         
-        $response = wp_remote_post('https://api.todoist.com/sync/v9/sync', array(
+        // Get active tasks using REST API v2
+        $response = wp_remote_get('https://api.todoist.com/rest/v2/tasks', array(
             'headers' => array(
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/x-www-form-urlencoded'
-            ),
-            'body' => array(
-                'sync_token' => '*',
-                'resource_types' => '["items", "projects"]'
+                'Authorization' => 'Bearer ' . $token
             )
         ));
-        
+
         $response_code = wp_remote_retrieve_response_code($response);
         if (is_wp_error($response) || $response_code !== 200) {
             $error_msg = is_wp_error($response) ? $response->get_error_message() : 'HTTP ' . $response_code;
             error_log('Todoistberg Debug: API call failed - ' . $error_msg);
-            
+
             // If rate limited (429), show a helpful message instead of empty list
             if ($response_code === 429) {
                 error_log('Todoistberg Debug: Rate limited by Todoist API');
             }
-            
+
             return array();
         }
-        
-        $data = json_decode(wp_remote_retrieve_body($response), true);
-        $all_tasks = isset($data['items']) ? $data['items'] : array();
-        $projects = isset($data['projects']) ? $data['projects'] : array();
-        
-        // Create project lookup array
+
+        $all_tasks = json_decode(wp_remote_retrieve_body($response), true);
+
+        // Get projects separately
+        $projects = $this->get_projects_list();
+
+        // Create project lookup array (get_projects_list returns 'value' and 'label')
         $project_lookup = array();
         foreach ($projects as $project) {
-            $project_lookup[$project['id']] = $project['name'];
+            $project_lookup[$project['value']] = $project['label'];
         }
         
         $tasks = array();
@@ -838,7 +824,7 @@ class Todoistberg_Plugin {
             }
             
             // Skip completed tasks - we'll add them from activity log separately
-            if ($task['checked'] == 1) {
+            if (isset($task['is_completed']) && $task['is_completed']) {
                 continue;
             }
             
@@ -891,7 +877,7 @@ class Todoistberg_Plugin {
             $tasks[] = array(
                 'id' => $task['id'],
                 'content' => $task['content'],
-                'completed' => $task['checked'] == 1,
+                'completed' => isset($task['is_completed']) && $task['is_completed'],
                 'due' => $due_info,
                 'project_name' => $project_name
             );
@@ -917,69 +903,49 @@ class Todoistberg_Plugin {
     }
     
     /**
-     * Get tasks completed today from Todoist Activity API
+     * Get tasks completed today from Todoist Activities API
      */
     public function get_completed_tasks_today($project_id = '') {
-        $token = $this->get_todoist_token();
         $user_timezone = $this->get_timezone();
-        
-        if (empty($token)) {
-            return array();
-        }
-        
-        // Get today's range in user timezone
+
+        // Get today's date in user timezone
         $today = new DateTime('today', new DateTimeZone($user_timezone));
-        $today_start = $today->format('Y-m-d\T00:00:00');
-        $today_end = $today->format('Y-m-d\T23:59:59');
-        
-        // Convert to UTC for comparison with API data
-        $today_start_utc = new DateTime($today_start, new DateTimeZone($user_timezone));
-        $today_start_utc->setTimezone(new DateTimeZone('UTC'));
-        $today_end_utc = new DateTime($today_end, new DateTimeZone($user_timezone));
-        $today_end_utc->setTimezone(new DateTimeZone('UTC'));
-        
-        $today_start_str = $today_start_utc->format('Y-m-d\TH:i:s\Z');
-        $today_end_str = $today_end_utc->format('Y-m-d\TH:i:s\Z');
-        
-        // Get completed events from activity log
-        $activity_events = $this->get_activity_log(100);
-        
+        $today_str = $today->format('Y-m-d');
+
+        // Use the main method to get completed tasks for today
+        $activity_events = $this->get_completed_tasks_by_date($today_str, $today_str);
+
         // Get projects for lookup
         $projects = $this->get_projects_list();
         $project_lookup = array();
         foreach ($projects as $project) {
             $project_lookup[$project['value']] = $project['label'];
         }
-        
+
         $completed_tasks = array();
-        
+
         foreach ($activity_events as $event) {
-            if ($event['event_type'] === 'completed' && 
-                isset($event['event_date']) && 
-                $event['event_date'] >= $today_start_str && 
-                $event['event_date'] <= $today_end_str) {
-                
-                // Filter by project if specified
-                if (!empty($project_id) && $project_id !== 'all' && 
-                    isset($event['extra_data']['project_id']) && 
-                    $event['extra_data']['project_id'] != $project_id) {
-                    continue;
-                }
-                
-                // Get project name
-                $task_project_id = isset($event['extra_data']['project_id']) ? $event['extra_data']['project_id'] : '';
-                $project_name = isset($project_lookup[$task_project_id]) ? $project_lookup[$task_project_id] : 'Unknown Project';
-                
-                $completed_tasks[] = array(
-                    'id' => isset($event['extra_data']['item_id']) ? $event['extra_data']['item_id'] : $event['id'],
-                    'content' => isset($event['extra_data']['content']) ? $event['extra_data']['content'] : 'Completed task',
-                    'completed' => true,
-                    'due' => null, // Completed tasks don't need due info
-                    'project_name' => $project_name
-                );
+            // Get project ID from event
+            $task_project_id = isset($event['parent_project_id']) ? $event['parent_project_id'] :
+                              (isset($event['project_id']) ? $event['project_id'] : '');
+
+            // Filter by project if specified
+            if (!empty($project_id) && $project_id !== 'all' && $task_project_id != $project_id) {
+                continue;
             }
+
+            // Get project name
+            $project_name = isset($project_lookup[$task_project_id]) ? $project_lookup[$task_project_id] : 'Unknown Project';
+
+            $completed_tasks[] = array(
+                'id' => isset($event['object_id']) ? $event['object_id'] : $event['id'],
+                'content' => isset($event['extra_data']['content']) ? $event['extra_data']['content'] : 'Completed task',
+                'completed' => true,
+                'due' => null, // Completed tasks don't need due info
+                'project_name' => $project_name
+            );
         }
-        
+
         return $completed_tasks;
     }
     
@@ -1001,102 +967,48 @@ class Todoistberg_Plugin {
         error_log('✅ Todoistberg: Fetching activity log...');
         
         $stats = array();
-        
-        // Fetch activity log for completed tasks
-        $activity_events = $this->get_activity_log();
-        
+
         if ($show_today) {
-            $today_count = 0;
             // Use user's timezone for "today"
             $today = new DateTime('today', new DateTimeZone($user_timezone));
-            $today_start = $today->format('Y-m-d\T00:00:00');
-            $today_end = $today->format('Y-m-d\T23:59:59');
-            
-            // Convert to UTC for comparison with API data
-            $today_start_utc = new DateTime($today_start, new DateTimeZone($user_timezone));
-            $today_start_utc->setTimezone(new DateTimeZone('UTC'));
-            $today_end_utc = new DateTime($today_end, new DateTimeZone($user_timezone));
-            $today_end_utc->setTimezone(new DateTimeZone('UTC'));
-            
-            $today_start_str = $today_start_utc->format('Y-m-d\TH:i:s\Z');
-            $today_end_str = $today_end_utc->format('Y-m-d\TH:i:s\Z');
-            
-            error_log('📅 Todoistberg: Today in ' . $user_timezone . ': ' . $today_start . ' to ' . $today_end);
-            error_log('📅 Todoistberg: Today in UTC: ' . $today_start_str . ' to ' . $today_end_str);
-            
-            foreach ($activity_events as $event) {
-                if ($event['event_type'] === 'completed' && 
-                    isset($event['event_date']) && 
-                    $event['event_date'] >= $today_start_str && 
-                    $event['event_date'] <= $today_end_str) {
-                    $today_count++;
-                    error_log('✅ Todoistberg: Found task completed today at: ' . $event['event_date']);
-                }
-            }
-            $stats['today'] = $today_count;
-            error_log('📊 Todoistberg: Today count: ' . $today_count);
+            $today_str = $today->format('Y-m-d');
+
+            error_log('📅 Todoistberg: Fetching tasks completed today (' . $today_str . ') in timezone: ' . $user_timezone);
+
+            $today_tasks = $this->get_completed_tasks_by_date($today_str, $today_str);
+            $stats['today'] = count($today_tasks);
+
+            error_log('📊 Todoistberg: Today count: ' . $stats['today']);
         }
-        
+
         if ($show_week) {
-            $week_count = 0;
             // Use user's timezone for week calculation
             $week_start = new DateTime('monday this week', new DateTimeZone($user_timezone));
-            $week_end = new DateTime('sunday this week 23:59:59', new DateTimeZone($user_timezone));
-            
-            // Convert to UTC for comparison
-            $week_start_utc = clone $week_start;
-            $week_start_utc->setTimezone(new DateTimeZone('UTC'));
-            $week_end_utc = clone $week_end;
-            $week_end_utc->setTimezone(new DateTimeZone('UTC'));
-            
-            $week_start_str = $week_start_utc->format('Y-m-d\TH:i:s\Z');
-            $week_end_str = $week_end_utc->format('Y-m-d\TH:i:s\Z');
-            
-            error_log('📅 Todoistberg: Week in ' . $user_timezone . ': ' . $week_start->format('Y-m-d H:i:s') . ' to ' . $week_end->format('Y-m-d H:i:s'));
-            error_log('📅 Todoistberg: Week in UTC: ' . $week_start_str . ' to ' . $week_end_str);
-            
-            foreach ($activity_events as $event) {
-                if ($event['event_type'] === 'completed' && 
-                    isset($event['event_date']) && 
-                    $event['event_date'] >= $week_start_str && 
-                    $event['event_date'] <= $week_end_str) {
-                    $week_count++;
-                    error_log('✅ Todoistberg: Found task completed this week at: ' . $event['event_date']);
-                }
-            }
-            $stats['week'] = $week_count;
-            error_log('📊 Todoistberg: Week count: ' . $week_count);
+            $week_end = new DateTime('sunday this week', new DateTimeZone($user_timezone));
+            $week_start_str = $week_start->format('Y-m-d');
+            $week_end_str = $week_end->format('Y-m-d');
+
+            error_log('📅 Todoistberg: Fetching tasks completed this week (' . $week_start_str . ' to ' . $week_end_str . ') in timezone: ' . $user_timezone);
+
+            $week_tasks = $this->get_completed_tasks_by_date($week_start_str, $week_end_str);
+            $stats['week'] = count($week_tasks);
+
+            error_log('📊 Todoistberg: Week count: ' . $stats['week']);
         }
-        
+
         if ($show_month) {
-            $month_count = 0;
             // Use user's timezone for month calculation
             $month_start = new DateTime('first day of this month', new DateTimeZone($user_timezone));
-            $month_end = new DateTime('last day of this month 23:59:59', new DateTimeZone($user_timezone));
-            
-            // Convert to UTC for comparison
-            $month_start_utc = clone $month_start;
-            $month_start_utc->setTimezone(new DateTimeZone('UTC'));
-            $month_end_utc = clone $month_end;
-            $month_end_utc->setTimezone(new DateTimeZone('UTC'));
-            
-            $month_start_str = $month_start_utc->format('Y-m-d\TH:i:s\Z');
-            $month_end_str = $month_end_utc->format('Y-m-d\TH:i:s\Z');
-            
-            error_log('📅 Todoistberg: Month in ' . $user_timezone . ': ' . $month_start->format('Y-m-d H:i:s') . ' to ' . $month_end->format('Y-m-d H:i:s'));
-            error_log('📅 Todoistberg: Month in UTC: ' . $month_start_str . ' to ' . $month_end_str);
-            
-            foreach ($activity_events as $event) {
-                if ($event['event_type'] === 'completed' && 
-                    isset($event['event_date']) && 
-                    $event['event_date'] >= $month_start_str && 
-                    $event['event_date'] <= $month_end_str) {
-                    $month_count++;
-                    error_log('✅ Todoistberg: Found task completed this month at: ' . $event['event_date']);
-                }
-            }
-            $stats['month'] = $month_count;
-            error_log('📊 Todoistberg: Month count: ' . $month_count);
+            $month_end = new DateTime('last day of this month', new DateTimeZone($user_timezone));
+            $month_start_str = $month_start->format('Y-m-d');
+            $month_end_str = $month_end->format('Y-m-d');
+
+            error_log('📅 Todoistberg: Fetching tasks completed this month (' . $month_start_str . ' to ' . $month_end_str . ') in timezone: ' . $user_timezone);
+
+            $month_tasks = $this->get_completed_tasks_by_date($month_start_str, $month_end_str);
+            $stats['month'] = count($month_tasks);
+
+            error_log('📊 Todoistberg: Month count: ' . $stats['month']);
         }
         
         if ($show_past_due) {
@@ -1109,118 +1021,132 @@ class Todoistberg_Plugin {
     }
     
     /**
-     * Get activity log from Todoist API for completed tasks
+     * Get completed tasks from Todoist API v1 Activities endpoint for a specific date range
+     * This endpoint includes recurring tasks, unlike the deprecated /tasks/completed endpoint
      */
-    public function get_activity_log($limit = 100) {
-        error_log('🔄 Todoistberg: get_activity_log called');
-        
+    public function get_completed_tasks_by_date($since, $until) {
+        error_log('🔄 Todoistberg: get_completed_tasks_by_date called (since: ' . $since . ', until: ' . $until . ')');
+
         $token = $this->get_todoist_token();
-        
+
         if (empty($token)) {
-            error_log('❌ Todoistberg: No token in get_activity_log');
+            error_log('❌ Todoistberg: No token in get_completed_tasks_by_date');
             return array();
         }
-        
-        error_log('📤 Todoistberg: Making API call to Todoist Activity API...');
-        
-        // Use Todoist Activity API to get completed events
-        $response = wp_remote_get("https://api.todoist.com/sync/v9/activity/get?event_type=completed&limit=" . $limit, array(
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $token
-            )
-        ));
-        
-        if (is_wp_error($response)) {
-            error_log('❌ Todoistberg: WP Error in API call: ' . $response->get_error_message());
-            return array();
-        }
-        
-        $status_code = wp_remote_retrieve_response_code($response);
-        error_log('📥 Todoistberg: Activity API response status: ' . $status_code);
-        
-        if ($status_code !== 200) {
-            error_log('❌ Todoistberg: Activity API error status: ' . $status_code);
-            error_log('📄 Todoistberg: Activity API response body: ' . wp_remote_retrieve_body($response));
-            return array();
-        }
-        
-        $data = json_decode(wp_remote_retrieve_body($response), true);
-        $events = isset($data['events']) ? $data['events'] : array();
-        
-        error_log('📊 Todoistberg: Activity API response: ' . count($events) . ' events received');
-        
-        if (count($events) > 0) {
-            error_log('📋 Todoistberg: Sample activity event: ' . print_r($events[0], true));
-        }
-        
-        return $events;
+
+        $all_items = array();
+        $cursor = null;
+        $page = 1;
+
+        do {
+            error_log('📤 Todoistberg: Fetching completed tasks page ' . $page . '...');
+
+            $url = 'https://api.todoist.com/api/v1/activities';
+            $params = array(
+                'event_type' => 'completed',
+                'date_from' => $since . 'T00:00:00',
+                'date_to' => $until . 'T23:59:59',
+            );
+
+            if ($cursor) {
+                $params['cursor'] = $cursor;
+            }
+
+            $url_with_params = add_query_arg($params, $url);
+
+            $response = wp_remote_get($url_with_params, array(
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $token
+                ),
+                'timeout' => 30
+            ));
+
+            if (is_wp_error($response)) {
+                error_log('❌ Todoistberg: WP Error in API call: ' . $response->get_error_message());
+                break;
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+
+            if ($status_code !== 200) {
+                error_log('❌ Todoistberg: API error status: ' . $status_code);
+                error_log('📄 Todoistberg: API response body: ' . wp_remote_retrieve_body($response));
+                break;
+            }
+
+            $data = json_decode(wp_remote_retrieve_body($response), true);
+            // Activities endpoint returns 'results' instead of 'items'
+            $items = isset($data['results']) ? $data['results'] : array();
+
+            error_log('📊 Todoistberg: Page ' . $page . ' returned ' . count($items) . ' items');
+
+            $all_items = array_merge($all_items, $items);
+
+            // Check for pagination
+            $cursor = isset($data['next_cursor']) ? $data['next_cursor'] : null;
+            $page++;
+
+            // Safety limit to prevent infinite loops
+            if ($page > 100) {
+                error_log('⚠️  Todoistberg: Reached page limit (100), stopping pagination');
+                break;
+            }
+
+        } while ($cursor);
+
+        error_log('✅ Todoistberg: Total completed tasks fetched: ' . count($all_items));
+
+        return $all_items;
     }
+
     
     /**
-     * Get count of past-due tasks
+     * Get count of past-due tasks using filter endpoint
      */
     public function get_past_due_count() {
         error_log('🔄 Todoistberg: get_past_due_count called');
-        
+
         $token = $this->get_todoist_token();
-        $user_timezone = $this->get_timezone();
-        
+
         if (empty($token)) {
             error_log('❌ Todoistberg: No token in get_past_due_count');
             return 0;
         }
-        
-        // Get all active (uncompleted) tasks
-        $response = wp_remote_post('https://api.todoist.com/sync/v9/sync', array(
+
+        // Use filter endpoint with "due before: today" query
+        $url = 'https://api.todoist.com/api/v1/tasks/filter';
+        $params = array(
+            'query' => 'due before: today'
+        );
+
+        $url_with_params = add_query_arg($params, $url);
+
+        $response = wp_remote_get($url_with_params, array(
             'headers' => array(
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/x-www-form-urlencoded'
-            ),
-            'body' => array(
-                'sync_token' => '*',
-                'resource_types' => '["items"]'
+                'Authorization' => 'Bearer ' . $token
             )
         ));
-        
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
-            error_log('❌ Todoistberg: Failed to fetch tasks for past-due count');
+
+        if (is_wp_error($response)) {
+            error_log('❌ Todoistberg: WP Error in past-due API call: ' . $response->get_error_message());
             return 0;
         }
-        
-        $data = json_decode(wp_remote_retrieve_body($response), true);
-        $all_tasks = isset($data['items']) ? $data['items'] : array();
-        
-        $now = new DateTime('now', new DateTimeZone($user_timezone));
-        $today = $now->format('Y-m-d');
-        $past_due_count = 0;
-        
-        error_log('📅 Todoistberg: Checking for tasks past due before: ' . $today . ' (in ' . $user_timezone . ')');
-        
-        foreach ($all_tasks as $task) {
-            // Skip completed tasks
-            if ($task['checked'] == 1) {
-                continue;
-            }
-            
-            // Check if task has a due date
-            if (isset($task['due']) && !empty($task['due']['date'])) {
-                $due_date = $task['due']['date'];
-                
-                // Handle both date and datetime formats
-                if (strpos($due_date, 'T') !== false) {
-                    // Full datetime - extract just the date part
-                    $due_date = substr($due_date, 0, 10);
-                }
-                
-                // Check if due date is before today
-                if ($due_date < $today) {
-                    $past_due_count++;
-                    error_log('⏰ Todoistberg: Found past due task: "' . $task['content'] . '" due ' . $due_date);
-                }
-            }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+
+        if ($status_code !== 200) {
+            error_log('❌ Todoistberg: Past-due API error status: ' . $status_code);
+            error_log('📄 Todoistberg: Response body: ' . wp_remote_retrieve_body($response));
+            return 0;
         }
-        
-        error_log('📊 Todoistberg: Total past due tasks: ' . $past_due_count);
+
+        $response_data = json_decode(wp_remote_retrieve_body($response), true);
+
+        // The filter endpoint returns data in a 'results' key
+        $tasks = $response_data['results'] ?? $response_data;
+        $past_due_count = is_array($tasks) ? count($tasks) : 0;
+
+        error_log('📊 Todoistberg: Total past due tasks (using filter): ' . $past_due_count);
         return $past_due_count;
     }
     
