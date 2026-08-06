@@ -77,49 +77,39 @@
         handleTaskClick: function(e) {
             const $task = $(this);
             const taskId = $task.data('task-id');
-            
+            const projectId = $task.closest('.todoistberg-todo-list').data('project-id') || '';
+
             if (!taskId) return;
-            
-            // Toggle completion state
+
             const isCompleted = $task.hasClass('completed');
             const newState = !isCompleted;
-            
-            // Show loading state
+
             $task.addClass('updating');
-            
+
             $.ajax({
                 url: todoistbergFrontend.ajaxUrl,
                 type: 'POST',
                 data: {
                     action: 'todoistberg_toggle_task',
                     task_id: taskId,
-                    completed: newState,
+                    project_id: projectId,
+                    completed: newState ? 'true' : 'false',
                     nonce: todoistbergFrontend.nonce
                 },
                 success: function(response) {
                     if (response.success) {
                         if (newState) {
                             $task.addClass('completed');
+                            $task.find('.todoistberg-task-checkmark').text('✅');
                         } else {
                             $task.removeClass('completed');
+                            $task.find('.todoistberg-task-checkmark').text('⬜️');
                         }
                     } else {
-                        // Revert visual state on error
-                        if (newState) {
-                            $task.removeClass('completed');
-                        } else {
-                            $task.addClass('completed');
-                        }
                         console.error('Failed to update task:', response.data);
                     }
                 },
                 error: function() {
-                    // Revert visual state on error
-                    if (newState) {
-                        $task.removeClass('completed');
-                    } else {
-                        $task.addClass('completed');
-                    }
                     console.error('Network error updating task');
                 },
                 complete: function() {
@@ -187,10 +177,12 @@
                             
                             const tasksHtml = tasks.map(function(task) {
                                 const completedClass = task.completed ? 'completed' : '';
-                                const dueDate = task.due ? 
+                                const checkmark = task.completed ? '✅' : '⬜️';
+                                const dueDate = task.due ?
                                     '<span class="todoistberg-task-due">' + new Date(task.due.date).toLocaleDateString() + '</span>' : '';
-                                
+
                                 return '<li class="todoistberg-task ' + completedClass + '" data-task-id="' + task.id + '">' +
+                                    '<span class="todoistberg-task-checkmark">' + checkmark + '</span>' +
                                     '<span class="todoistberg-task-content">' + task.content + '</span>' +
                                     dueDate +
                                     '</li>';

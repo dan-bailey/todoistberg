@@ -3,7 +3,7 @@
  * Plugin Name: Todoistberg - Todoist Gutenberg Blocks
  * Plugin URI: https://github.com/dan-bailey/todoistberg
  * Description: A collection of Gutenberg blocks for integrating Todoist functionality into WordPress.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Dan Bailey
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TODOISTBERG_VERSION', '1.1.0');
+define('TODOISTBERG_VERSION', '1.2.0');
 define('TODOISTBERG_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TODOISTBERG_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('TODOISTBERG_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -297,11 +297,16 @@ class Todoistberg_Plugin {
             'type' => 'string',
             'sanitize_callback' => 'sanitize_text_field'
         ));
-        
+
         register_setting('todoistberg_options', 'todoistberg_timezone', array(
             'type' => 'string',
             'sanitize_callback' => 'sanitize_text_field',
             'default' => 'UTC'
+        ));
+
+        register_setting('todoistberg_options', 'todoistberg_authorized_completers', array(
+            'type' => 'array',
+            'default' => array('administrator')
         ));
     }
     
@@ -369,6 +374,29 @@ class Todoistberg_Plugin {
                 </div>
                 
                 <div class="todoistberg-card">
+                    <h2><?php _e('Authorized Completers', 'todoistberg'); ?></h2>
+                    <p><?php _e('Select which user roles are allowed to mark tasks as complete on the frontend.', 'todoistberg'); ?></p>
+                    <div class="todoistberg-completers-section">
+                        <?php
+                        $authorized_completers = $this->get_authorized_completers();
+                        $roles = array(
+                            'administrator' => __('Administrator', 'todoistberg'),
+                            'editor'        => __('Editor', 'todoistberg'),
+                            'author'        => __('Author', 'todoistberg'),
+                            'contributor'   => __('Contributor', 'todoistberg'),
+                            'subscriber'    => __('Subscriber', 'todoistberg'),
+                        );
+                        foreach ($roles as $role => $label):
+                        ?>
+                            <label class="todoistberg-completer-label">
+                                <input type="checkbox" class="todoistberg-completer-checkbox" value="<?php echo esc_attr($role); ?>" <?php checked(in_array($role, $authorized_completers, true)); ?> />
+                                <?php echo esc_html($label); ?>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="todoistberg-card">
                     <h2><?php _e('Available Blocks', 'todoistberg'); ?></h2>
                     <ul>
                         <li><strong>Todo List:</strong> <?php _e('Display tasks from a specific project', 'todoistberg'); ?></li>
@@ -411,6 +439,22 @@ class Todoistberg_Plugin {
         .todoistberg-status {
             margin-top: 20px;
         }
+        .todoistberg-completers-section {
+            margin: 15px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .todoistberg-completer-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: normal;
+            cursor: pointer;
+        }
+        .todoistberg-completer-label input[type="checkbox"] {
+            margin: 0;
+        }
         </style>
         
         <script>
@@ -420,9 +464,14 @@ class Todoistberg_Plugin {
                 var timezone = $('#todoist_timezone').val();
                 var button = $(this);
                 var originalText = button.text();
-                
+
+                var authorizedCompleters = [];
+                $('.todoistberg-completer-checkbox:checked').each(function() {
+                    authorizedCompleters.push($(this).val());
+                });
+
                 button.prop('disabled', true).text('Saving...');
-                
+
                 $.ajax({
                     url: ajaxurl,
                     type: 'POST',
@@ -430,6 +479,7 @@ class Todoistberg_Plugin {
                         action: 'todoistberg_save_settings',
                         token: token,
                         timezone: timezone,
+                        authorized_completers: authorizedCompleters,
                         nonce: '<?php echo wp_create_nonce('todoistberg_admin_nonce'); ?>'
                     },
                     success: function(response) {
@@ -502,17 +552,28 @@ class Todoistberg_Plugin {
      */
     public function save_settings_ajax() {
         check_ajax_referer('todoistberg_admin_nonce', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_die('Unauthorized');
         }
-        
+
         $token = sanitize_text_field($_POST['token']);
         $timezone = sanitize_text_field($_POST['timezone']);
-        
+
+        $valid_roles = array('administrator', 'editor', 'author', 'contributor', 'subscriber');
+        $raw_completers = isset($_POST['authorized_completers']) ? (array) $_POST['authorized_completers'] : array();
+        $authorized_completers = array_values(array_intersect(
+            array_map('sanitize_text_field', $raw_completers),
+            $valid_roles
+        ));
+        if (empty($authorized_completers)) {
+            $authorized_completers = array('administrator');
+        }
+
         update_option('todoistberg_token', $token);
         update_option('todoistberg_timezone', $timezone);
-        
+        update_option('todoistberg_authorized_completers', $authorized_completers);
+
         wp_send_json_success('Settings saved successfully');
     }
     
@@ -547,6 +608,34 @@ class Todoistberg_Plugin {
      */
     public function get_timezone() {
         return get_option('todoistberg_timezone', 'UTC');
+    }
+
+    /**
+     * Get authorized completer roles
+     */
+    public function get_authorized_completers() {
+        $saved = get_option('todoistberg_authorized_completers', array('administrator'));
+        return is_array($saved) ? $saved : array('administrator');
+    }
+
+    /**
+     * Check if the current user is allowed to complete tasks
+     */
+    public function user_can_complete_tasks() {
+        $authorized = $this->get_authorized_completers();
+        $role_caps = array(
+            'administrator' => 'manage_options',
+            'editor'        => 'edit_others_posts',
+            'author'        => 'publish_posts',
+            'contributor'   => 'edit_posts',
+            'subscriber'    => 'read',
+        );
+        foreach ($authorized as $role) {
+            if (isset($role_caps[$role]) && current_user_can($role_caps[$role])) {
+                return true;
+            }
+        }
+        return false;
     }
     
     /**
@@ -1260,34 +1349,45 @@ class Todoistberg_Plugin {
      */
     public function toggle_task_ajax() {
         check_ajax_referer('todoistberg_frontend_nonce', 'nonce');
-        
+
+        if (!$this->user_can_complete_tasks()) {
+            wp_send_json_error('Insufficient permissions to complete tasks.');
+        }
+
         $task_id = sanitize_text_field($_POST['task_id']);
-        $completed = (bool) $_POST['completed'];
-        
+        $project_id = sanitize_text_field($_POST['project_id'] ?? '');
+        $completed = filter_var($_POST['completed'] ?? 'false', FILTER_VALIDATE_BOOLEAN);
+
         if (empty($task_id)) {
             wp_send_json_error('Task ID is required');
         }
-        
+
         $token = $this->get_todoist_token();
         if (empty($token)) {
             wp_send_json_error('Todoist token not configured');
         }
-        
-        // Use REST API v2 for task completion
+
         $endpoint = $completed ? 'close' : 'reopen';
-        $response = wp_remote_post("https://api.todoist.com/rest/v2/tasks/{$task_id}/{$endpoint}", array(
+        $response = wp_remote_post("https://api.todoist.com/api/v1/tasks/{$task_id}/{$endpoint}", array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $token
             )
         ));
-        
+
         if (is_wp_error($response)) {
             wp_send_json_error('Failed to update task: ' . $response->get_error_message());
         }
-        
+
         $status_code = wp_remote_retrieve_response_code($response);
-        
+
         if ($status_code === 204) {
+            // Clear cached task lists so the next load reflects the new state
+            if (!empty($project_id)) {
+                foreach (array(10, 25, 50) as $max) {
+                    delete_transient('todoistberg_tasks_' . md5($project_id . '_' . $max . '_0'));
+                    delete_transient('todoistberg_tasks_' . md5($project_id . '_' . $max . '_1'));
+                }
+            }
             wp_send_json_success('Task updated successfully');
         } else {
             wp_send_json_error('Failed to update task. HTTP ' . $status_code);
