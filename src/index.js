@@ -10,12 +10,13 @@ import { __ } from '@wordpress/i18n';
 import './style.scss';
 import TodoListBlock from './blocks/todo-list';
 import TodoStatsBlock from './blocks/todo-stats';
+import ProjectTasksBlock from './blocks/project-tasks';
 
 /**
  * Register Todoist blocks
  */
 registerBlockType('todoistberg/todo-list', {
-    title: __('Todoist Task List', 'todoistberg'),
+    title: __("Today's Tasks", 'todoistberg'),
     description: __('Display tasks from a Todoist project.', 'todoistberg'),
     category: 'todoist',
     icon: 'list-view',
@@ -23,6 +24,72 @@ registerBlockType('todoistberg/todo-list', {
         __('todoist', 'todoistberg'),
         __('tasks', 'todoistberg'),
         __('todo', 'todoistberg'),
+        __('list', 'todoistberg')
+    ],
+    supports: {
+        html: false,
+        align: ['wide', 'full']
+    },
+    attributes: {
+        maxItems: {
+            type: 'number',
+            default: 10
+        },
+        showCompleted: {
+            type: 'boolean',
+            default: false
+        },
+        showProjectPill: {
+            type: 'boolean',
+            default: false
+        },
+        title: {
+            type: 'string',
+            default: ''
+        },
+        borderWidth: {
+            type: 'number',
+            default: 0
+        },
+        borderColor: {
+            type: 'string',
+            default: '#ddd'
+        },
+        borderRadius: {
+            type: 'number',
+            default: 0
+        },
+        backgroundColor: {
+            type: 'string',
+            default: '#fff'
+        },
+        margin: {
+            type: 'number',
+            default: 20
+        },
+        padding: {
+            type: 'number',
+            default: 20
+        },
+        headlineAlignment: {
+            type: 'string',
+            default: 'left'
+        }
+    },
+    edit: TodoListBlock,
+    save: () => null // Dynamic block, rendered on server
+});
+
+
+registerBlockType('todoistberg/project-tasks', {
+    title: __('Project Tasks', 'todoistberg'),
+    description: __('Display all tasks from a Todoist project.', 'todoistberg'),
+    category: 'todoist',
+    icon: 'list-view',
+    keywords: [
+        __('todoist', 'todoistberg'),
+        __('tasks', 'todoistberg'),
+        __('project', 'todoistberg'),
         __('list', 'todoistberg')
     ],
     supports: {
@@ -79,13 +146,13 @@ registerBlockType('todoistberg/todo-list', {
             default: 'left'
         }
     },
-    edit: TodoListBlock,
-    save: () => null // Dynamic block, rendered on server
+    edit: ProjectTasksBlock,
+    save: () => null
 });
 
 
 registerBlockType('todoistberg/todo-stats', {
-    title: __('Todoist Completion Statistics', 'todoistberg'),
+    title: __('Statistics', 'todoistberg'),
     description: __('Display completed Todoist tasks statistics.', 'todoistberg'),
     category: 'todoist',
     icon: 'chart-bar',

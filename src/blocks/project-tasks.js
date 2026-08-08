@@ -2,18 +2,20 @@
  * WordPress dependencies
  */
 import { __ } from '@wordpress/i18n';
-import { 
-    useBlockProps, 
+import {
+    useBlockProps,
     InspectorControls,
     RichText
 } from '@wordpress/block-editor';
 import {
+    Placeholder,
     Spinner,
     Notice,
     Card,
     CardBody,
     CardHeader,
     PanelBody,
+    SelectControl,
     RangeControl,
     ToggleControl,
     ColorPicker
@@ -21,13 +23,14 @@ import {
 import { useState, useEffect } from '@wordpress/element';
 
 /**
- * Todo List Block Edit Component
+ * Project Tasks Block Edit Component
  */
-export default function TodoListBlock({ attributes, setAttributes }) {
-    const { maxItems, showCompleted, showProjectPill, title, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment } = attributes;
+export default function ProjectTasksBlock({ attributes, setAttributes }) {
+    const { projectId, maxItems, showCompleted, showProjectPill, title, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment } = attributes;
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [projects, setProjects] = useState([]);
 
     const blockProps = useBlockProps({
         className: 'todoistberg-todo-list',
@@ -41,15 +44,25 @@ export default function TodoListBlock({ attributes, setAttributes }) {
     });
 
     useEffect(() => {
-        fetchTasks();
-    }, [maxItems, showCompleted]);
+        if (window.todoistbergData && window.todoistbergData.projects) {
+            setProjects(window.todoistbergData.projects);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (projectId) {
+            fetchTasks();
+        } else {
+            setTasks([]);
+        }
+    }, [projectId, maxItems, showCompleted]);
 
     const fetchTasks = async () => {
         setLoading(true);
         setError('');
 
         try {
-            const response = await fetch(`/wp-json/todoistberg/v1/tasks?max_items=${maxItems}&show_completed=${showCompleted}`, {
+            const response = await fetch(`/wp-json/todoistberg/v1/project-tasks?project_id=${projectId}&max_items=${maxItems}&show_completed=${showCompleted}`, {
                 headers: {
                     'X-WP-Nonce': window.todoistbergData?.nonce || ''
                 }
@@ -117,6 +130,16 @@ export default function TodoListBlock({ attributes, setAttributes }) {
         <>
             <InspectorControls>
                 <PanelBody title={__('Todoist Settings', 'todoistberg')}>
+                    <SelectControl
+                        label={__('Project', 'todoistberg')}
+                        value={projectId}
+                        options={[
+                            { label: __('Select a project...', 'todoistberg'), value: '' },
+                            ...projects
+                        ]}
+                        onChange={(value) => setAttributes({ projectId: value })}
+                    />
+
                     <RangeControl
                         label={__('Maximum Items', 'todoistberg')}
                         value={maxItems}
@@ -124,7 +147,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         min={1}
                         max={50}
                     />
-                    
+
                     <ToggleControl
                         label={__('Show Completed Tasks', 'todoistberg')}
                         checked={showCompleted}
@@ -137,7 +160,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         onChange={(value) => setAttributes({ showProjectPill: value })}
                     />
                 </PanelBody>
-                
+
                 <PanelBody title={__('Block Styling', 'todoistberg')} initialOpen={false}>
                     <RangeControl
                         label={__('Border Width', 'todoistberg')}
@@ -146,7 +169,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         min={0}
                         max={10}
                     />
-                    
+
                     <div style={{ marginTop: '16px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '11px', fontWeight: '500', textTransform: 'uppercase' }}>
                             {__('Border Color', 'todoistberg')}
@@ -157,7 +180,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                             enableAlpha
                         />
                     </div>
-                    
+
                     <RangeControl
                         label={__('Corner Radius', 'todoistberg')}
                         value={borderRadius}
@@ -165,7 +188,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         min={0}
                         max={50}
                     />
-                    
+
                     <div style={{ marginTop: '16px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '11px', fontWeight: '500', textTransform: 'uppercase' }}>
                             {__('Background Color', 'todoistberg')}
@@ -176,7 +199,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                             enableAlpha
                         />
                     </div>
-                    
+
                     <RangeControl
                         label={__('Margin (px)', 'todoistberg')}
                         value={margin}
@@ -184,7 +207,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         min={0}
                         max={100}
                     />
-                    
+
                     <RangeControl
                         label={__('Padding (px)', 'todoistberg')}
                         value={padding}
@@ -193,7 +216,7 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                         max={100}
                     />
                 </PanelBody>
-                
+
                 <PanelBody title={__('Headline Settings', 'todoistberg')} initialOpen={false}>
                     <SelectControl
                         label={__('Headline Alignment', 'todoistberg')}
@@ -217,11 +240,17 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                     onChange={(value) => setAttributes({ title: value })}
                     placeholder={__('Enter title...', 'todoistberg')}
                 />
-                
+
                 {!window.todoistbergData?.hasToken ? (
                     <Notice status="warning" isDismissible={false}>
                         {__('Please configure your Todoist API token in the plugin settings.', 'todoistberg')}
                     </Notice>
+                ) : !projectId ? (
+                    <Placeholder
+                        icon="list-view"
+                        label={__('Project Tasks', 'todoistberg')}
+                        instructions={__('Select a project from the block settings to display tasks.', 'todoistberg')}
+                    />
                 ) : (
                     <Card>
                         <CardHeader>
