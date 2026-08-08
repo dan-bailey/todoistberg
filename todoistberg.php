@@ -53,8 +53,20 @@ class Todoistberg_Plugin {
 
         // Register custom block category
         add_filter('block_categories_all', array($this, 'register_block_category'), 10, 2);
+
+        // Add Settings link on the Plugins page
+        add_filter('plugin_action_links_' . TODOISTBERG_PLUGIN_BASENAME, array($this, 'add_plugin_action_links'));
     }
     
+    /**
+     * Add a Settings link to the plugin row on the Plugins page
+     */
+    public function add_plugin_action_links($links) {
+        $settings_link = '<a href="' . admin_url('options-general.php?page=todoistberg-settings') . '">' . __('Settings', 'todoistberg') . '</a>';
+        array_unshift($links, $settings_link);
+        return $links;
+    }
+
     /**
      * Add the "Todoist" category to the block inserter
      */
