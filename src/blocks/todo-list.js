@@ -7,15 +7,13 @@ import {
     InspectorControls,
     RichText
 } from '@wordpress/block-editor';
-import { 
-    Placeholder, 
+import {
     Spinner,
     Notice,
     Card,
     CardBody,
     CardHeader,
     PanelBody,
-    SelectControl,
     RangeControl,
     ToggleControl,
     ColorPicker
@@ -26,12 +24,11 @@ import { useState, useEffect } from '@wordpress/element';
  * Todo List Block Edit Component
  */
 export default function TodoListBlock({ attributes, setAttributes }) {
-    const { projectId, maxItems, showCompleted, showProjectPill, title, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment } = attributes;
+    const { maxItems, showCompleted, showProjectPill, title, borderWidth, borderColor, borderRadius, backgroundColor, margin, padding, headlineAlignment } = attributes;
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [projects, setProjects] = useState([]);
-    
+
     const blockProps = useBlockProps({
         className: 'todoistberg-todo-list',
         style: {
@@ -43,28 +40,16 @@ export default function TodoListBlock({ attributes, setAttributes }) {
         }
     });
 
-    // Fetch projects on component mount
     useEffect(() => {
-        if (window.todoistbergData && window.todoistbergData.projects) {
-            setProjects(window.todoistbergData.projects);
-        }
-    }, []);
-
-    // Fetch tasks when projectId changes
-    useEffect(() => {
-        if (projectId) {
-            fetchTasks();
-        } else {
-            setTasks([]);
-        }
-    }, [projectId, maxItems, showCompleted]);
+        fetchTasks();
+    }, [maxItems, showCompleted]);
 
     const fetchTasks = async () => {
         setLoading(true);
         setError('');
 
         try {
-            const response = await fetch(`/wp-json/todoistberg/v1/tasks?project_id=${projectId}&max_items=${maxItems}&show_completed=${showCompleted}`, {
+            const response = await fetch(`/wp-json/todoistberg/v1/tasks?max_items=${maxItems}&show_completed=${showCompleted}`, {
                 headers: {
                     'X-WP-Nonce': window.todoistbergData?.nonce || ''
                 }
@@ -132,17 +117,6 @@ export default function TodoListBlock({ attributes, setAttributes }) {
         <>
             <InspectorControls>
                 <PanelBody title={__('Todoist Settings', 'todoistberg')}>
-                    <SelectControl
-                        label={__('Project', 'todoistberg')}
-                        value={projectId}
-                        options={[
-                            { label: __('Select a project...', 'todoistberg'), value: '' },
-                            { label: __('All Projects', 'todoistberg'), value: 'all' },
-                            ...projects
-                        ]}
-                        onChange={(value) => setAttributes({ projectId: value })}
-                    />
-                    
                     <RangeControl
                         label={__('Maximum Items', 'todoistberg')}
                         value={maxItems}
@@ -248,12 +222,6 @@ export default function TodoListBlock({ attributes, setAttributes }) {
                     <Notice status="warning" isDismissible={false}>
                         {__('Please configure your Todoist API token in the plugin settings.', 'todoistberg')}
                     </Notice>
-                ) : !projectId ? (
-                    <Placeholder
-                        icon="list-view"
-                        label={__('Todoist Task List', 'todoistberg')}
-                        instructions={__('Select a project from the block settings to display tasks.', 'todoistberg')}
-                    />
                 ) : (
                     <Card>
                         <CardHeader>

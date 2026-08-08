@@ -31,10 +31,6 @@ registerBlockType('todoistberg/todo-list', {
         align: ['wide', 'full']
     },
     attributes: {
-        projectId: {
-            type: 'string',
-            default: ''
-        },
         maxItems: {
             type: 'number',
             default: 10

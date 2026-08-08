@@ -50,8 +50,27 @@ class Todoistberg_Plugin {
         
         // Register REST API endpoints
         add_action('rest_api_init', array($this, 'register_rest_routes'));
+
+        // Register custom block category
+        add_filter('block_categories_all', array($this, 'register_block_category'), 10, 2);
     }
     
+    /**
+     * Add the "Todoist" category to the block inserter
+     */
+    public function register_block_category($categories, $post) {
+        return array_merge(
+            array(
+                array(
+                    'slug'  => 'todoist',
+                    'title' => __('Todoist', 'todoistberg'),
+                    'icon'  => null,
+                ),
+            ),
+            $categories
+        );
+    }
+
     /**
      * Initialize the plugin
      */
@@ -787,15 +806,10 @@ class Todoistberg_Plugin {
      * Render Todo List block
      */
     public function render_todo_list_block($attributes) {
-        $project_id = $attributes['projectId'] ?? '';
         $max_items = $attributes['maxItems'] ?? 10;
         $show_completed = $attributes['showCompleted'] ?? false;
         $show_project_pill = $attributes['showProjectPill'] ?? false;
         $title = $attributes['title'] ?? '';
-
-        error_log('Todoistberg Debug: All attributes = ' . json_encode($attributes));
-        error_log('Todoistberg Debug: showProjectPill attribute value = ' . var_export($attributes['showProjectPill'] ?? 'NOT SET', true));
-        error_log('Todoistberg Debug: showProjectPill final value = ' . var_export($show_project_pill, true));
         $border_width = $attributes['borderWidth'] ?? 0;
         $border_color = $attributes['borderColor'] ?? '#ddd';
         $border_radius = $attributes['borderRadius'] ?? 0;
@@ -803,12 +817,12 @@ class Todoistberg_Plugin {
         $margin = $attributes['margin'] ?? 20;
         $padding = $attributes['padding'] ?? 20;
         $headline_alignment = $attributes['headlineAlignment'] ?? 'left';
-        
-        $tasks = $this->get_tasks($project_id, $max_items, $show_completed);
+
+        $tasks = $this->get_tasks('', $max_items, $show_completed);
         
         ob_start();
         ?>
-        <div class="todoistberg-todo-list" data-project-id="<?php echo esc_attr($project_id); ?>" style="<?php 
+        <div class="todoistberg-todo-list" style="<?php
             echo $border_width ? 'border: ' . esc_attr($border_width) . 'px solid ' . esc_attr($border_color) . ';' : 'border: none;';
             echo 'border-radius: ' . esc_attr($border_radius) . 'px;';
             echo 'background-color: ' . esc_attr($background_color) . ';';
@@ -818,7 +832,7 @@ class Todoistberg_Plugin {
             <?php if (!empty($title)): ?>
                 <h3 class="todoistberg-title" style="text-align: <?php echo esc_attr($headline_alignment); ?>"><?php echo esc_html($title); ?></h3>
             <?php endif; ?>
-            
+
             <?php if (empty($tasks)): ?>
                 <p class="todoistberg-no-tasks"><?php _e('No tasks found.', 'todoistberg'); ?></p>
             <?php else: ?>
@@ -842,7 +856,7 @@ class Todoistberg_Plugin {
         <?php
         return ob_get_clean();
     }
-    
+
     /**
      * Render Project Tasks block (all project tasks, no date filter)
      */
@@ -1027,10 +1041,6 @@ class Todoistberg_Plugin {
             'query' => 'today'
         );
 
-        if (!empty($project_id) && $project_id !== 'all') {
-            $params['query'] = 'today & #' . $project_id;
-        }
-
         $url_with_params = add_query_arg($params, $url);
 
         $response = wp_remote_get($url_with_params, array(
@@ -1158,9 +1168,9 @@ class Todoistberg_Plugin {
 
         $user_timezone = $this->get_timezone();
 
-        $completed_tasks_today = array();
+        $completed_tasks_pool = array();
         if ($show_completed) {
-            $completed_tasks_today = $this->get_completed_tasks_today($project_id);
+            $completed_tasks_pool = $this->get_completed_tasks_for_project($project_id, $max_items);
         }
 
         $url = 'https://api.todoist.com/api/v1/tasks';
@@ -1223,10 +1233,10 @@ class Todoistberg_Plugin {
             }
         }
 
-        if ($show_completed && !empty($completed_tasks_today)) {
+        if ($show_completed && !empty($completed_tasks_pool)) {
             $remaining = $max_items - count($tasks);
             if ($remaining > 0) {
-                $tasks = array_merge($tasks, array_slice($completed_tasks_today, 0, $remaining));
+                $tasks = array_merge($tasks, array_slice($completed_tasks_pool, 0, $remaining));
             }
         }
 
@@ -1281,7 +1291,74 @@ class Todoistberg_Plugin {
 
         return $completed_tasks;
     }
-    
+
+    /**
+     * Get recently completed tasks for a specific project (last 90 days) for the Project Tasks block.
+     * Queries the activities API with server-side project and object-type filtering for efficiency.
+     */
+    public function get_completed_tasks_for_project($project_id, $limit = 10) {
+        $token = $this->get_todoist_token();
+        if (empty($token) || empty($project_id)) {
+            return array();
+        }
+
+        $user_timezone = $this->get_timezone();
+        $since = (new DateTime('-90 days', new DateTimeZone($user_timezone)))->format('Y-m-d');
+        $until = (new DateTime('today', new DateTimeZone($user_timezone)))->format('Y-m-d');
+
+        $projects = $this->get_projects_list();
+        $project_lookup = array();
+        foreach ($projects as $project) {
+            $project_lookup[$project['value']] = $project['label'];
+        }
+
+        $params = array(
+            'event_type'  => 'completed',
+            'object_type' => 'item',
+            'date_from'   => $since . 'T00:00:00',
+            'date_to'     => $until . 'T23:59:59',
+        );
+
+        if ($project_id !== 'all') {
+            $params['parent_project_id'] = $project_id;
+        }
+
+        $response = wp_remote_get(
+            add_query_arg($params, 'https://api.todoist.com/api/v1/activities'),
+            array(
+                'headers' => array('Authorization' => 'Bearer ' . $token),
+                'timeout' => 15,
+            )
+        );
+
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            return array();
+        }
+
+        $data  = json_decode(wp_remote_retrieve_body($response), true);
+        $items = $data['results'] ?? array();
+
+        $completed_tasks = array();
+        foreach ($items as $event) {
+            $task_project_id = $event['parent_project_id'] ?? $event['project_id'] ?? '';
+            $project_name    = $project_lookup[$task_project_id] ?? '';
+
+            $completed_tasks[] = array(
+                'id'           => $event['object_id'] ?? $event['id'],
+                'content'      => $event['extra_data']['content'] ?? 'Completed task',
+                'completed'    => true,
+                'due'          => null,
+                'project_name' => $project_name,
+            );
+
+            if (count($completed_tasks) >= $limit) {
+                break;
+            }
+        }
+
+        return $completed_tasks;
+    }
+
     /**
      * Get statistics from Todoist API
      */
@@ -1625,10 +1702,6 @@ class Todoistberg_Plugin {
             'callback' => array($this, 'get_tasks_rest'),
             'permission_callback' => '__return_true',
             'args' => array(
-                'project_id' => array(
-                    'type' => 'string',
-                    'default' => '',
-                ),
                 'max_items' => array(
                     'type' => 'integer',
                     'default' => 10,
@@ -1665,11 +1738,10 @@ class Todoistberg_Plugin {
      * Get tasks via REST API
      */
     public function get_tasks_rest($request) {
-        $project_id = $request->get_param('project_id');
         $max_items = $request->get_param('max_items');
         $show_completed = $request->get_param('show_completed');
 
-        $tasks = $this->get_tasks($project_id, $max_items, $show_completed);
+        $tasks = $this->get_tasks('', $max_items, $show_completed);
 
         return rest_ensure_response($tasks);
     }
