@@ -16,7 +16,7 @@ import ProjectTasksBlock from './blocks/project-tasks';
  * Register Todoist blocks
  */
 registerBlockType('todoistberg/todo-list', {
-    title: __('Todoist Task List', 'todoistberg'),
+    title: __("Today's Tasks", 'todoistberg'),
     description: __('Display tasks from a Todoist project.', 'todoistberg'),
     category: 'todoist',
     icon: 'list-view',
@@ -152,7 +152,7 @@ registerBlockType('todoistberg/project-tasks', {
 
 
 registerBlockType('todoistberg/todo-stats', {
-    title: __('Todoist Completion Statistics', 'todoistberg'),
+    title: __('Statistics', 'todoistberg'),
     description: __('Display completed Todoist tasks statistics.', 'todoistberg'),
     category: 'todoist',
     icon: 'chart-bar',
