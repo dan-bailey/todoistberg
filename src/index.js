@@ -10,6 +10,7 @@ import { __ } from '@wordpress/i18n';
 import './style.scss';
 import TodoListBlock from './blocks/todo-list';
 import TodoStatsBlock from './blocks/todo-stats';
+import ProjectTasksBlock from './blocks/project-tasks';
 
 /**
  * Register Todoist blocks
@@ -81,6 +82,76 @@ registerBlockType('todoistberg/todo-list', {
     },
     edit: TodoListBlock,
     save: () => null // Dynamic block, rendered on server
+});
+
+
+registerBlockType('todoistberg/project-tasks', {
+    title: __('Project Tasks', 'todoistberg'),
+    description: __('Display all tasks from a Todoist project.', 'todoistberg'),
+    category: 'todoist',
+    icon: 'list-view',
+    keywords: [
+        __('todoist', 'todoistberg'),
+        __('tasks', 'todoistberg'),
+        __('project', 'todoistberg'),
+        __('list', 'todoistberg')
+    ],
+    supports: {
+        html: false,
+        align: ['wide', 'full']
+    },
+    attributes: {
+        projectId: {
+            type: 'string',
+            default: ''
+        },
+        maxItems: {
+            type: 'number',
+            default: 10
+        },
+        showCompleted: {
+            type: 'boolean',
+            default: false
+        },
+        showProjectPill: {
+            type: 'boolean',
+            default: false
+        },
+        title: {
+            type: 'string',
+            default: ''
+        },
+        borderWidth: {
+            type: 'number',
+            default: 0
+        },
+        borderColor: {
+            type: 'string',
+            default: '#ddd'
+        },
+        borderRadius: {
+            type: 'number',
+            default: 0
+        },
+        backgroundColor: {
+            type: 'string',
+            default: '#fff'
+        },
+        margin: {
+            type: 'number',
+            default: 20
+        },
+        padding: {
+            type: 'number',
+            default: 20
+        },
+        headlineAlignment: {
+            type: 'string',
+            default: 'left'
+        }
+    },
+    edit: ProjectTasksBlock,
+    save: () => null
 });
 
 
