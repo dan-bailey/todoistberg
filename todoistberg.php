@@ -3,7 +3,7 @@
  * Plugin Name: Todoistberg - Todoist Gutenberg Blocks
  * Plugin URI: https://github.com/dan-bailey/todoistberg
  * Description: A collection of Gutenberg blocks for integrating Todoist functionality into WordPress.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Dan Bailey
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('TODOISTBERG_VERSION', '1.2.0');
+define('TODOISTBERG_VERSION', '1.2.1');
 define('TODOISTBERG_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('TODOISTBERG_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('TODOISTBERG_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -108,7 +108,7 @@ class Todoistberg_Plugin {
         wp_register_script(
             'todoistberg-blocks',
             TODOISTBERG_PLUGIN_URL . 'build/index.js',
-            array('wp-blocks', 'wp-element', 'wp-editor', 'wp-components', 'wp-i18n'),
+            array('wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n'),
             TODOISTBERG_VERSION
         );
         
@@ -396,6 +396,11 @@ class Todoistberg_Plugin {
             'type' => 'array',
             'default' => array('administrator')
         ));
+
+        register_setting('todoistberg_options', 'todoistberg_verbose_logging', array(
+            'type' => 'boolean',
+            'default' => false
+        ));
     }
     
     /**
@@ -485,6 +490,17 @@ class Todoistberg_Plugin {
                 </div>
 
                 <div class="todoistberg-card">
+                    <h2><?php _e('Developer', 'todoistberg'); ?></h2>
+                    <div class="todoistberg-completers-section">
+                        <label class="todoistberg-completer-label">
+                            <input type="checkbox" id="verbose_logging" class="todoistberg-verbose-logging" <?php checked($this->get_verbose_logging()); ?> />
+                            <?php _e('Verbose Logging', 'todoistberg'); ?>
+                        </label>
+                        <p class="description"><?php _e('Log detailed API and error information to the PHP error log. Leave off in production.', 'todoistberg'); ?></p>
+                    </div>
+                </div>
+
+                <div class="todoistberg-card">
                     <h2><?php _e('Available Blocks', 'todoistberg'); ?></h2>
                     <ul>
                         <li><strong>Todo List:</strong> <?php _e('Display today\'s tasks from a specific project', 'todoistberg'); ?></li>
@@ -559,6 +575,8 @@ class Todoistberg_Plugin {
                     authorizedCompleters.push($(this).val());
                 });
 
+                var verboseLogging = $('#verbose_logging').is(':checked') ? 1 : 0;
+
                 button.prop('disabled', true).text('Saving...');
 
                 $.ajax({
@@ -569,6 +587,7 @@ class Todoistberg_Plugin {
                         token: token,
                         timezone: timezone,
                         authorized_completers: authorizedCompleters,
+                        verbose_logging: verboseLogging,
                         nonce: '<?php echo wp_create_nonce('todoistberg_admin_nonce'); ?>'
                     },
                     success: function(response) {
@@ -659,9 +678,12 @@ class Todoistberg_Plugin {
             $authorized_completers = array('administrator');
         }
 
+        $verbose_logging = !empty($_POST['verbose_logging']) && $_POST['verbose_logging'] == '1';
+
         update_option('todoistberg_token', $token);
         update_option('todoistberg_timezone', $timezone);
         update_option('todoistberg_authorized_completers', $authorized_completers);
+        update_option('todoistberg_verbose_logging', $verbose_logging);
 
         wp_send_json_success('Settings saved successfully');
     }
@@ -705,6 +727,19 @@ class Todoistberg_Plugin {
     public function get_authorized_completers() {
         $saved = get_option('todoistberg_authorized_completers', array('administrator'));
         return is_array($saved) ? $saved : array('administrator');
+    }
+
+    /**
+     * Get verbose logging setting
+     */
+    public function get_verbose_logging() {
+        return (bool) get_option('todoistberg_verbose_logging', false);
+    }
+
+    private function log_verbose($message) {
+        if ($this->get_verbose_logging()) {
+            error_log($message);
+        }
     }
 
     /**
@@ -780,15 +815,15 @@ class Todoistberg_Plugin {
 
         $response_data = json_decode(wp_remote_retrieve_body($response), true);
 
-        error_log('Todoistberg Debug: Projects raw response keys: ' . (is_array($response_data) ? implode(', ', array_keys($response_data)) : 'not an array'));
-        error_log('Todoistberg Debug: Projects response type: ' . gettype($response_data));
+        $this->log_verbose('Todoistberg Debug: Projects raw response keys: ' . (is_array($response_data) ? implode(', ', array_keys($response_data)) : 'not an array'));
+        $this->log_verbose('Todoistberg Debug: Projects response type: ' . gettype($response_data));
 
         // API v1 projects endpoint might return results in a 'results' key like other endpoints
         $projects = $response_data['results'] ?? $response_data;
 
-        error_log('Todoistberg Debug: After extracting, projects count: ' . (is_array($projects) ? count($projects) : 'N/A'));
+        $this->log_verbose('Todoistberg Debug: After extracting, projects count: ' . (is_array($projects) ? count($projects) : 'N/A'));
         if (is_array($projects) && count($projects) > 0) {
-            error_log('Todoistberg Debug: First project: ' . json_encode(reset($projects)));
+            $this->log_verbose('Todoistberg Debug: First project: ' . json_encode(reset($projects)));
         }
 
         // Ensure we have a valid array
@@ -810,7 +845,7 @@ class Todoistberg_Plugin {
             );
         }
 
-        error_log('Todoistberg Debug: Returning ' . count($projects_list) . ' projects');
+        $this->log_verbose('Todoistberg Debug: Returning ' . count($projects_list) . ' projects');
         return $projects_list;
     }
     
@@ -1088,9 +1123,9 @@ class Todoistberg_Plugin {
             $project_lookup[$project['value']] = $project['label'];
         }
 
-        error_log('Todoistberg Debug: Project lookup has ' . count($project_lookup) . ' projects');
+        $this->log_verbose('Todoistberg Debug: Project lookup has ' . count($project_lookup) . ' projects');
         if (count($project_lookup) > 0) {
-            error_log('Todoistberg Debug: First few project IDs: ' . implode(', ', array_slice(array_keys($project_lookup), 0, 3)));
+            $this->log_verbose('Todoistberg Debug: First few project IDs: ' . implode(', ', array_slice(array_keys($project_lookup), 0, 3)));
         }
 
         $tasks = array();
@@ -1131,7 +1166,7 @@ class Todoistberg_Plugin {
             
             // Get project name
             $task_project_id = $task['project_id'] ?? 'none';
-            error_log('Todoistberg Debug: Task "' . substr($task['content'], 0, 30) . '" has project_id: ' . $task_project_id);
+            $this->log_verbose('Todoistberg Debug: Task "' . substr($task['content'], 0, 30) . '" has project_id: ' . $task_project_id);
             $project_name = isset($project_lookup[$task_project_id]) ? $project_lookup[$task_project_id] : 'Unknown Project (' . $task_project_id . ')';
             
             $tasks[] = array(
@@ -1375,18 +1410,18 @@ class Todoistberg_Plugin {
      * Get statistics from Todoist API
      */
     public function get_stats($show_today = true, $show_week = true, $show_month = true, $show_past_due = false) {
-        error_log('🔄 Todoistberg: get_stats called');
-        
+        $this->log_verbose('🔄 Todoistberg: get_stats called');
+
         $token = $this->get_todoist_token();
         $user_timezone = $this->get_timezone();
-        
+
         if (empty($token)) {
             error_log('❌ Todoistberg: No token found');
             return array();
         }
-        
-        error_log('✅ Todoistberg: Token found, using timezone: ' . $user_timezone);
-        error_log('✅ Todoistberg: Fetching activity log...');
+
+        $this->log_verbose('✅ Todoistberg: Token found, using timezone: ' . $user_timezone);
+        $this->log_verbose('✅ Todoistberg: Fetching activity log...');
         
         $stats = array();
 
@@ -1395,12 +1430,12 @@ class Todoistberg_Plugin {
             $today = new DateTime('today', new DateTimeZone($user_timezone));
             $today_str = $today->format('Y-m-d');
 
-            error_log('📅 Todoistberg: Fetching tasks completed today (' . $today_str . ') in timezone: ' . $user_timezone);
+            $this->log_verbose('📅 Todoistberg: Fetching tasks completed today (' . $today_str . ') in timezone: ' . $user_timezone);
 
             $today_tasks = $this->get_completed_tasks_by_date($today_str, $today_str);
             $stats['today'] = count($today_tasks);
 
-            error_log('📊 Todoistberg: Today count: ' . $stats['today']);
+            $this->log_verbose('📊 Todoistberg: Today count: ' . $stats['today']);
         }
 
         if ($show_week) {
@@ -1410,12 +1445,12 @@ class Todoistberg_Plugin {
             $week_start_str = $week_start->format('Y-m-d');
             $week_end_str = $week_end->format('Y-m-d');
 
-            error_log('📅 Todoistberg: Fetching tasks completed this week (' . $week_start_str . ' to ' . $week_end_str . ') in timezone: ' . $user_timezone);
+            $this->log_verbose('📅 Todoistberg: Fetching tasks completed this week (' . $week_start_str . ' to ' . $week_end_str . ') in timezone: ' . $user_timezone);
 
             $week_tasks = $this->get_completed_tasks_by_date($week_start_str, $week_end_str);
             $stats['week'] = count($week_tasks);
 
-            error_log('📊 Todoistberg: Week count: ' . $stats['week']);
+            $this->log_verbose('📊 Todoistberg: Week count: ' . $stats['week']);
         }
 
         if ($show_month) {
@@ -1425,18 +1460,18 @@ class Todoistberg_Plugin {
             $month_start_str = $month_start->format('Y-m-d');
             $month_end_str = $month_end->format('Y-m-d');
 
-            error_log('📅 Todoistberg: Fetching tasks completed this month (' . $month_start_str . ' to ' . $month_end_str . ') in timezone: ' . $user_timezone);
+            $this->log_verbose('📅 Todoistberg: Fetching tasks completed this month (' . $month_start_str . ' to ' . $month_end_str . ') in timezone: ' . $user_timezone);
 
             $month_tasks = $this->get_completed_tasks_by_date($month_start_str, $month_end_str);
             $stats['month'] = count($month_tasks);
 
-            error_log('📊 Todoistberg: Month count: ' . $stats['month']);
+            $this->log_verbose('📊 Todoistberg: Month count: ' . $stats['month']);
         }
         
         if ($show_past_due) {
             $past_due_count = $this->get_past_due_count();
             $stats['pastDue'] = $past_due_count;
-            error_log('📊 Todoistberg: Past due count: ' . $past_due_count);
+            $this->log_verbose('📊 Todoistberg: Past due count: ' . $past_due_count);
         }
         
         return $stats;
@@ -1447,7 +1482,7 @@ class Todoistberg_Plugin {
      * This endpoint includes recurring tasks, unlike the deprecated /tasks/completed endpoint
      */
     public function get_completed_tasks_by_date($since, $until) {
-        error_log('🔄 Todoistberg: get_completed_tasks_by_date called (since: ' . $since . ', until: ' . $until . ')');
+        $this->log_verbose('🔄 Todoistberg: get_completed_tasks_by_date called (since: ' . $since . ', until: ' . $until . ')');
 
         $token = $this->get_todoist_token();
 
@@ -1461,7 +1496,7 @@ class Todoistberg_Plugin {
         $page = 1;
 
         do {
-            error_log('📤 Todoistberg: Fetching completed tasks page ' . $page . '...');
+            $this->log_verbose('📤 Todoistberg: Fetching completed tasks page ' . $page . '...');
 
             $url = 'https://api.todoist.com/api/v1/activities';
             $params = array(
@@ -1500,7 +1535,7 @@ class Todoistberg_Plugin {
             // Activities endpoint returns 'results' instead of 'items'
             $items = isset($data['results']) ? $data['results'] : array();
 
-            error_log('📊 Todoistberg: Page ' . $page . ' returned ' . count($items) . ' items');
+            $this->log_verbose('📊 Todoistberg: Page ' . $page . ' returned ' . count($items) . ' items');
 
             $all_items = array_merge($all_items, $items);
 
@@ -1516,7 +1551,7 @@ class Todoistberg_Plugin {
 
         } while ($cursor);
 
-        error_log('✅ Todoistberg: Total completed tasks fetched: ' . count($all_items));
+        $this->log_verbose('✅ Todoistberg: Total completed tasks fetched: ' . count($all_items));
 
         return $all_items;
     }
@@ -1526,7 +1561,7 @@ class Todoistberg_Plugin {
      * Get count of past-due tasks using filter endpoint
      */
     public function get_past_due_count() {
-        error_log('🔄 Todoistberg: get_past_due_count called');
+        $this->log_verbose('🔄 Todoistberg: get_past_due_count called');
 
         $token = $this->get_todoist_token();
 
@@ -1568,7 +1603,7 @@ class Todoistberg_Plugin {
         $tasks = $response_data['results'] ?? $response_data;
         $past_due_count = is_array($tasks) ? count($tasks) : 0;
 
-        error_log('📊 Todoistberg: Total past due tasks (using filter): ' . $past_due_count);
+        $this->log_verbose('📊 Todoistberg: Total past due tasks (using filter): ' . $past_due_count);
         return $past_due_count;
     }
     
@@ -1576,20 +1611,20 @@ class Todoistberg_Plugin {
      * Get stats via AJAX
      */
     public function get_stats_ajax() {
-        error_log('🔄 Todoistberg: get_stats_ajax called');
-        
+        $this->log_verbose('🔄 Todoistberg: get_stats_ajax called');
+
         check_ajax_referer('todoistberg_frontend_nonce', 'nonce');
-        
+
         $show_today = isset($_POST['show_today']) ? (bool) $_POST['show_today'] : true;
         $show_week = isset($_POST['show_week']) ? (bool) $_POST['show_week'] : true;
         $show_month = isset($_POST['show_month']) ? (bool) $_POST['show_month'] : true;
         $show_past_due = isset($_POST['show_past_due']) ? (bool) $_POST['show_past_due'] : false;
-        
-        error_log('📊 Todoistberg: Show settings - Today: ' . ($show_today ? 'true' : 'false') . ', Week: ' . ($show_week ? 'true' : 'false') . ', Month: ' . ($show_month ? 'true' : 'false') . ', Past Due: ' . ($show_past_due ? 'true' : 'false'));
-        
+
+        $this->log_verbose('📊 Todoistberg: Show settings - Today: ' . ($show_today ? 'true' : 'false') . ', Week: ' . ($show_week ? 'true' : 'false') . ', Month: ' . ($show_month ? 'true' : 'false') . ', Past Due: ' . ($show_past_due ? 'true' : 'false'));
+
         $stats = $this->get_stats($show_today, $show_week, $show_month, $show_past_due);
-        
-        error_log('📊 Todoistberg: Stats calculated: ' . print_r($stats, true));
+
+        $this->log_verbose('📊 Todoistberg: Stats calculated: ' . print_r($stats, true));
         
         wp_send_json_success($stats);
     }

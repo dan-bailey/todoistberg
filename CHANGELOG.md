@@ -1,5 +1,8 @@
 ## Changelog
 
+### 1.2.1
+* reduced verbosity of error logging, made it a setting
+
 ### 1.2.0
 * added the project-specific checklist block
 * site users (depending on level) can toggle task completions
