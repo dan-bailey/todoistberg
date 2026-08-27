@@ -16,7 +16,8 @@ import {
     PanelBody,
     RangeControl,
     ToggleControl,
-    ColorPicker
+    ColorPicker,
+    SelectControl
 } from '@wordpress/components';
 import { useState, useEffect } from '@wordpress/element';
 

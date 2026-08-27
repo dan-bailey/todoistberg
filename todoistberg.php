@@ -108,7 +108,7 @@ class Todoistberg_Plugin {
         wp_register_script(
             'todoistberg-blocks',
             TODOISTBERG_PLUGIN_URL . 'build/index.js',
-            array('wp-blocks', 'wp-element', 'wp-editor', 'wp-components', 'wp-i18n'),
+            array('wp-blocks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-i18n'),
             TODOISTBERG_VERSION
         );
         
