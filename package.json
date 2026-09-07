@@ -1,6 +1,6 @@
 {
   "name": "todoistberg",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Todoist Gutenberg Blocks for WordPress",
   "main": "build/index.js",
   "scripts": {
