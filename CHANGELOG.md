@@ -1,5 +1,8 @@
 ## Changelog
 
+### 1.2.2
+* added a setting to allow for the filtering of teams projects
+
 ### 1.2.1
 * reduced verbosity of error logging, made it a setting
 
