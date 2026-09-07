@@ -401,6 +401,11 @@ class Todoistberg_Plugin {
             'type' => 'boolean',
             'default' => false
         ));
+
+        register_setting('todoistberg_options', 'todoistberg_exclude_teams', array(
+            'type' => 'boolean',
+            'default' => false
+        ));
     }
     
     /**
@@ -486,6 +491,17 @@ class Todoistberg_Plugin {
                                 <?php echo esc_html($label); ?>
                             </label>
                         <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="todoistberg-card">
+                    <h2><?php _e('Task Filtering', 'todoistberg'); ?></h2>
+                    <div class="todoistberg-completers-section">
+                        <label class="todoistberg-completer-label">
+                            <input type="checkbox" id="exclude_teams" class="todoistberg-exclude-teams" <?php checked($this->get_exclude_teams()); ?> />
+                            <?php _e('Exclude Teams Projects', 'todoistberg'); ?>
+                        </label>
+                        <p class="description"><?php _e('Hide tasks and projects that belong to Todoist Teams (shared workspaces). Affects both the task feed and the project selector in blocks.', 'todoistberg'); ?></p>
                     </div>
                 </div>
 
@@ -576,6 +592,7 @@ class Todoistberg_Plugin {
                 });
 
                 var verboseLogging = $('#verbose_logging').is(':checked') ? 1 : 0;
+                var excludeTeams = $('#exclude_teams').is(':checked') ? 1 : 0;
 
                 button.prop('disabled', true).text('Saving...');
 
@@ -588,6 +605,7 @@ class Todoistberg_Plugin {
                         timezone: timezone,
                         authorized_completers: authorizedCompleters,
                         verbose_logging: verboseLogging,
+                        exclude_teams: excludeTeams,
                         nonce: '<?php echo wp_create_nonce('todoistberg_admin_nonce'); ?>'
                     },
                     success: function(response) {
@@ -679,11 +697,13 @@ class Todoistberg_Plugin {
         }
 
         $verbose_logging = !empty($_POST['verbose_logging']) && $_POST['verbose_logging'] == '1';
+        $exclude_teams = !empty($_POST['exclude_teams']) && $_POST['exclude_teams'] == '1';
 
         update_option('todoistberg_token', $token);
         update_option('todoistberg_timezone', $timezone);
         update_option('todoistberg_authorized_completers', $authorized_completers);
         update_option('todoistberg_verbose_logging', $verbose_logging);
+        update_option('todoistberg_exclude_teams', $exclude_teams);
 
         wp_send_json_success('Settings saved successfully');
     }
@@ -734,6 +754,10 @@ class Todoistberg_Plugin {
      */
     public function get_verbose_logging() {
         return (bool) get_option('todoistberg_verbose_logging', false);
+    }
+
+    public function get_exclude_teams() {
+        return (bool) get_option('todoistberg_exclude_teams', false);
     }
 
     private function log_verbose($message) {
@@ -795,11 +819,36 @@ class Todoistberg_Plugin {
      * Get projects list for block settings using API v1
      */
     public function get_projects_list() {
+        $projects = $this->fetch_projects_raw();
+        $exclude_teams = $this->get_exclude_teams();
+
+        $projects_list = array();
+        foreach ($projects as $project) {
+            if ($exclude_teams && !empty($project['workspace_id'])) {
+                continue;
+            }
+            $projects_list[] = array(
+                'value' => $project['id'],
+                'label' => $project['name']
+            );
+        }
+
+        $this->log_verbose('Todoistberg Debug: Returning ' . count($projects_list) . ' projects');
+        return $projects_list;
+    }
+
+    private function fetch_projects_raw() {
         $token = $this->get_todoist_token();
 
         if (empty($token)) {
-            error_log('Todoistberg Debug: No token in get_projects_list');
+            error_log('Todoistberg Debug: No token in fetch_projects_raw');
             return array();
+        }
+
+        $cache_key = 'todoistberg_projects_raw';
+        $cached = get_transient($cache_key);
+        if ($cached !== false) {
+            return $cached;
         }
 
         $response = wp_remote_get('https://api.todoist.com/api/v1/projects', array(
@@ -816,37 +865,36 @@ class Todoistberg_Plugin {
         $response_data = json_decode(wp_remote_retrieve_body($response), true);
 
         $this->log_verbose('Todoistberg Debug: Projects raw response keys: ' . (is_array($response_data) ? implode(', ', array_keys($response_data)) : 'not an array'));
-        $this->log_verbose('Todoistberg Debug: Projects response type: ' . gettype($response_data));
 
-        // API v1 projects endpoint might return results in a 'results' key like other endpoints
         $projects = $response_data['results'] ?? $response_data;
 
         $this->log_verbose('Todoistberg Debug: After extracting, projects count: ' . (is_array($projects) ? count($projects) : 'N/A'));
-        if (is_array($projects) && count($projects) > 0) {
-            $this->log_verbose('Todoistberg Debug: First project: ' . json_encode(reset($projects)));
-        }
 
-        // Ensure we have a valid array
         if (!is_array($projects)) {
             return array();
         }
 
-        $projects_list = array();
+        $valid = array();
         foreach ($projects as $project) {
-            // Skip invalid project entries
             if (!is_array($project) || !isset($project['id']) || !isset($project['name'])) {
                 error_log('Todoistberg Debug: Skipping invalid project: ' . json_encode($project));
                 continue;
             }
-
-            $projects_list[] = array(
-                'value' => $project['id'],
-                'label' => $project['name']
-            );
+            $valid[] = $project;
         }
 
-        $this->log_verbose('Todoistberg Debug: Returning ' . count($projects_list) . ' projects');
-        return $projects_list;
+        set_transient($cache_key, $valid, 5 * MINUTE_IN_SECONDS);
+        return $valid;
+    }
+
+    private function get_teams_project_ids() {
+        $ids = array();
+        foreach ($this->fetch_projects_raw() as $project) {
+            if (!empty($project['workspace_id'])) {
+                $ids[] = $project['id'];
+            }
+        }
+        return $ids;
     }
     
     /**
@@ -1063,7 +1111,7 @@ class Todoistberg_Plugin {
         }
         
         // Check cache first to reduce API calls
-        $cache_key = 'todoistberg_tasks_' . md5($project_id . '_' . $max_items . '_' . ($show_completed ? '1' : '0'));
+        $cache_key = 'todoistberg_tasks_' . md5($project_id . '_' . $max_items . '_' . ($show_completed ? '1' : '0') . '_' . ($this->get_exclude_teams() ? '1' : '0'));
         $cached_tasks = get_transient($cache_key);
         
         if ($cached_tasks !== false) {
@@ -1128,12 +1176,18 @@ class Todoistberg_Plugin {
             $this->log_verbose('Todoistberg Debug: First few project IDs: ' . implode(', ', array_slice(array_keys($project_lookup), 0, 3)));
         }
 
+        $teams_ids = $this->get_exclude_teams() ? array_flip($this->get_teams_project_ids()) : array();
+
         $tasks = array();
 
         foreach ($all_tasks as $task) {
             // Skip completed tasks - we'll add them from activity log separately
             // API v1 uses 'checked' field (1 = completed, 0 = not completed)
             if (isset($task['checked']) && $task['checked'] == 1) {
+                continue;
+            }
+
+            if (!empty($teams_ids) && isset($task['project_id']) && isset($teams_ids[$task['project_id']])) {
                 continue;
             }
 
@@ -1207,7 +1261,7 @@ class Todoistberg_Plugin {
             return array();
         }
 
-        $cache_key = 'todoistberg_project_tasks_' . md5($project_id . '_' . $max_items . '_' . ($show_completed ? '1' : '0'));
+        $cache_key = 'todoistberg_project_tasks_' . md5($project_id . '_' . $max_items . '_' . ($show_completed ? '1' : '0') . '_' . ($this->get_exclude_teams() ? '1' : '0'));
         $cached = get_transient($cache_key);
         if ($cached !== false) {
             return $cached;
@@ -1248,9 +1302,15 @@ class Todoistberg_Plugin {
             $project_lookup[$project['value']] = $project['label'];
         }
 
+        $teams_ids = $this->get_exclude_teams() ? array_flip($this->get_teams_project_ids()) : array();
+
         $tasks = array();
         foreach ($all_tasks as $task) {
             if (isset($task['checked']) && $task['checked'] == 1) {
+                continue;
+            }
+
+            if (!empty($teams_ids) && isset($task['project_id']) && isset($teams_ids[$task['project_id']])) {
                 continue;
             }
 
